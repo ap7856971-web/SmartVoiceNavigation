@@ -29,7 +29,7 @@ const styles = StyleSheet.create({
   },
   codeSnippet: {
     borderRadius: Spacing.two,
-    paddingVertical: Spacing.half,
+    paddingVertical: 4,
     paddingHorizontal: Spacing.two,
   },
 });

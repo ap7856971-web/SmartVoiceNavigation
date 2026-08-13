@@ -8,6 +8,15 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 export default function SocialLogin() {
+
+  const signInWithGoogle = async () => {
+    try {
+      console.log("Google Sign In");
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   return (
     <View style={styles.container}>
 
@@ -17,7 +26,10 @@ export default function SocialLogin() {
 
       <View style={styles.row}>
 
-        <TouchableOpacity style={styles.button}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={signInWithGoogle}
+        >
           <Ionicons
             name="logo-google"
             size={32}

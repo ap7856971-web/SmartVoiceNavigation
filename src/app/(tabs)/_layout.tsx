@@ -46,6 +46,17 @@ export default function Layout() {
       />
 
       <Tabs.Screen
+        name="favorites"
+        options={{
+          title: "Favorites",
+          tabBarIcon: ({ color, size }) => (
+            <MaterialIcons name="favorite" color={color} size={size} />
+          ),
+        }}
+      />
+
+
+      <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",

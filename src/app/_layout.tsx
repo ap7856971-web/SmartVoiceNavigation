@@ -9,6 +9,7 @@ export default function RootLayout() {
 
       {/* Login Screen */}
       <Stack.Screen name="login" />
+      <Stack.Screen name="signup" />
 
       {/* Bottom Tabs */}
       <Stack.Screen name="(tabs)" />

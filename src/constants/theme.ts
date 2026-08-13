@@ -13,7 +13,6 @@ export const Colors = {
     danger: "#EF4444",
     warning: "#F59E0B",
 
-    // Home UI
     card: "#FFFFFF",
     border: "#E5E7EB",
     shadow: "#00000020",
@@ -48,7 +47,45 @@ export const Colors = {
     iconBackground: "#374151",
   },
 } as const;
+
+/**
+ * Theme color keys
+ *
+ * Used by ThemedText and ThemedView.
+ */
+export type ThemeColor = keyof typeof Colors.light;
+
+/**
+ * Font styles
+ *
+ * Used by ThemedText.
+ */
+export const Fonts = {
+  regular: {
+    fontFamily: "System",
+    fontWeight: "400" as const,
+  },
+
+  medium: {
+    fontFamily: "System",
+    fontWeight: "500" as const,
+  },
+
+  semiBold: {
+    fontFamily: "System",
+    fontWeight: "600" as const,
+  },
+
+  bold: {
+    fontFamily: "System",
+    fontWeight: "700" as const,
+  },
+
+  mono: "monospace",
+};
 export const Spacing = {
+  half: 2,
+
   one: 4,
   two: 8,
   three: 12,
@@ -58,4 +95,5 @@ export const Spacing = {
   seven: 28,
   eight: 32,
 };
+
 export const MaxContentWidth = 1200;
