@@ -4,14 +4,14 @@ export default function RootLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
 
-      {/* Splash Screen */}
+      {/* Get Started / Splash */}
       <Stack.Screen name="index" />
 
-      {/* Login Screen */}
-      <Stack.Screen name="login" />
+      {/* Authentication */}
       <Stack.Screen name="signup" />
+      <Stack.Screen name="login" />
 
-      {/* Bottom Tabs */}
+      {/* Main App */}
       <Stack.Screen name="(tabs)" />
 
     </Stack>

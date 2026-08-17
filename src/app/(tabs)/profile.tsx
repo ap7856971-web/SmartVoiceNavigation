@@ -117,11 +117,9 @@ export default function ProfileScreen() {
       if (snap.exists()) {
         const data = snap.data();
 
-        setName(data.name || currentUser.displayName || "User");
-        setEmail(data.email || currentUser.email || "No Email");
-        setPhone(
-          data.phone || currentUser.phoneNumber || "No Phone Number"
-        );
+        setName(data.name || currentUser.displayName || "");
+        setEmail(data.email || currentUser.email || "");
+        setPhone(data.phone || currentUser.phoneNumber || "");
         setGender(data.gender || "");
         setPhotoURL(
           data.photoURL || currentUser.photoURL || DEFAULT_AVATAR
@@ -148,16 +146,29 @@ export default function ProfileScreen() {
         setHomeAddress(data.homeAddress || "");
         setWorkAddress(data.workAddress || "");
       } else {
-        setName(currentUser.displayName || "User");
-        setEmail(currentUser.email || "No Email");
-        setPhone(currentUser.phoneNumber || "No Phone Number");
-        setPhotoURL(currentUser.photoURL || DEFAULT_AVATAR);
+        // First login: create a basic profile automatically.
+        // Profile completion is NOT required for login.
+        const basicProfile = {
+          name: currentUser.displayName || "",
+          email: currentUser.email || "",
+          phone: currentUser.phoneNumber || "",
+          photoURL: currentUser.photoURL || DEFAULT_AVATAR,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+
+        await setDoc(ref, basicProfile, { merge: true });
+
+        setName(basicProfile.name);
+        setEmail(basicProfile.email);
+        setPhone(basicProfile.phone);
+        setPhotoURL(basicProfile.photoURL);
       }
     } catch (error) {
       console.log("[Profile] Load error:", error);
-      setName(currentUser.displayName || "User");
-      setEmail(currentUser.email || "No Email");
-      setPhone(currentUser.phoneNumber || "No Phone Number");
+      setName(currentUser.displayName || "");
+      setEmail(currentUser.email || "");
+      setPhone(currentUser.phoneNumber || "");
       setPhotoURL(currentUser.photoURL || DEFAULT_AVATAR);
     }
   }
@@ -165,16 +176,8 @@ export default function ProfileScreen() {
   async function saveProfile() {
     if (!user) return;
 
-    if (!name.trim()) {
-      Alert.alert("Required", "Please enter your name.");
-      return;
-    }
-
-    if (!phone.trim()) {
-      Alert.alert("Required", "Please enter your phone number.");
-      return;
-    }
-
+    // All profile fields are optional.
+    // The user can login and use the app without completing the profile.
     setSaving(true);
 
     try {
@@ -351,16 +354,27 @@ export default function ProfileScreen() {
       "Logout",
       "Are you sure you want to logout?",
       [
-        { text: "Cancel", style: "cancel" },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
         {
           text: "Logout",
+          
           style: "destructive",
           onPress: async () => {
             try {
               await signOut(auth);
+
+              console.log("[Profile] User logged out");
+
+              // Get Started screen
               router.replace("/");
             } catch (error) {
-              console.log("[Profile] Logout error:", error);
+              console.error(
+                "[Profile] Logout error:",
+                error
+              );
             }
           },
         },
@@ -563,7 +577,7 @@ export default function ProfileScreen() {
                 ]}
                 numberOfLines={1}
               >
-                {email || "No Email"}
+                {email || "Add your email"}
               </Text>
 
               <Text
@@ -572,7 +586,7 @@ export default function ProfileScreen() {
                   { color: theme.sub },
                 ]}
               >
-                {phone || "No Phone Number"}
+                {phone || "Add your phone number"}
               </Text>
 
               {!!gender && (

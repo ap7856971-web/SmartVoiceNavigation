@@ -14,12 +14,26 @@ import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function HomeScreen() {
+  // ============================================
+  // USER NAME
+  // ============================================
+
+  const [userName, setUserName] = useState("User");
+
+  // ============================================
+  // CURRENT LOCATION
+  // ============================================
+
   const [currentLocation, setCurrentLocation] = useState({
     title: "Getting location...",
     subtitle: "Please wait...",
   });
 
   const [locationLoading, setLocationLoading] = useState(true);
+
+  // ============================================
+  // SAVED HOME LOCATION
+  // ============================================
 
   const [homeLocation, setHomeLocation] = useState<{
     title: string;
@@ -30,7 +44,39 @@ export default function HomeScreen() {
 
   const [homeSaved, setHomeSaved] = useState(false);
 
-  // Load the saved Home location when the screen opens.
+  // ============================================
+  // LOAD USER NAME
+  // ============================================
+
+  useEffect(() => {
+    const loadUserName = async () => {
+      try {
+        const savedName = await AsyncStorage.getItem(
+          "smartVoiceNavigation_userName"
+        );
+
+        if (savedName && savedName.trim()) {
+          setUserName(savedName.trim());
+        } else {
+          setUserName("User");
+        }
+      } catch (error) {
+        console.error(
+          "[HomeScreen] Failed to load user name:",
+          error
+        );
+
+        setUserName("User");
+      }
+    };
+
+    loadUserName();
+  }, []);
+
+  // ============================================
+  // LOAD SAVED HOME LOCATION
+  // ============================================
+
   useEffect(() => {
     const loadSavedHome = async () => {
       try {
@@ -62,8 +108,14 @@ export default function HomeScreen() {
     loadSavedHome();
   }, []);
 
+  // ============================================
+  // CURRENT LOCATION
+  // ============================================
+
   useEffect(() => {
-    let locationSubscription: Location.LocationSubscription | null = null;
+    let locationSubscription:
+      | Location.LocationSubscription
+      | null = null;
 
     const getCurrentLocation = async () => {
       try {
@@ -141,9 +193,8 @@ export default function HomeScreen() {
         if (addresses.length > 0) {
           const address = addresses[0];
 
-          // Do not use address.name first because it can be
-          // a house/plot number such as "111/26".
-          // Prefer the locality/area-like fields instead.
+          // Do not use address.name first because
+          // it can be a house/plot number.
           const title =
             address.street ||
             address.district ||
@@ -153,8 +204,8 @@ export default function HomeScreen() {
 
           const subtitle = [
             address.city ||
-            address.subregion ||
-            address.district,
+              address.subregion ||
+              address.district,
             address.region,
             address.country,
           ]
@@ -193,6 +244,10 @@ export default function HomeScreen() {
     };
   }, []);
 
+  // ============================================
+  // SAVE CURRENT LOCATION AS HOME
+  // ============================================
+
   const saveCurrentLocationAsHome = async () => {
     try {
       if (locationLoading) {
@@ -219,7 +274,6 @@ export default function HomeScreen() {
       if (addresses.length > 0) {
         const address = addresses[0];
 
-        // Avoid house/plot number. Use area/street/district.
         title =
           address.street ||
           address.district ||
@@ -229,8 +283,8 @@ export default function HomeScreen() {
 
         subtitle = [
           address.city ||
-          address.subregion ||
-          address.district,
+            address.subregion ||
+            address.district,
           address.region,
           address.country,
         ]
@@ -266,6 +320,10 @@ export default function HomeScreen() {
     }
   };
 
+  // ============================================
+  // REMOVE SAVED HOME
+  // ============================================
+
   const removeSavedHome = async () => {
     try {
       await AsyncStorage.removeItem(
@@ -280,11 +338,15 @@ export default function HomeScreen() {
       );
     } catch (error) {
       console.error(
-        "[HomeScreen] Failed to remove Home location:",
+        "[HomeScreen] Failed to remove saved Home:",
         error
       );
     }
   };
+
+  // ============================================
+  // UI
+  // ============================================
 
   return (
     <SafeAreaView style={styles.container}>
@@ -296,7 +358,7 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>
-              Hello, Aditya 👋
+              Hello, {userName} 👋
             </Text>
 
             <Text style={styles.subGreeting}>
@@ -371,9 +433,7 @@ export default function HomeScreen() {
                   color="#FFFFFF"
                 />
 
-                <Text
-                  style={styles.loadingText}
-                >
+                <Text style={styles.loadingText}>
                   Getting your location...
                 </Text>
               </View>
@@ -445,7 +505,6 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={styles.actionCard}
             onPress={() => router.push("/work")}
-              
           >
             <View
               style={[
@@ -673,6 +732,10 @@ export default function HomeScreen() {
   );
 }
 
+// ============================================
+// STYLES
+// ============================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -684,7 +747,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  /* HEADER */
+  // HEADER
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -710,7 +773,7 @@ const styles = StyleSheet.create({
     borderRadius: 50,
   },
 
-  /* SEARCH */
+  // SEARCH
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -741,7 +804,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
 
-  /* CURRENT LOCATION */
+  // CURRENT LOCATION
   locationCard: {
     backgroundColor: "#3B82F6",
     borderRadius: 20,
@@ -797,7 +860,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  /* SECTION */
+  // SECTION
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -819,7 +882,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 
-  /* ROW */
+  // ROW
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -827,7 +890,7 @@ const styles = StyleSheet.create({
     marginBottom: 25,
   },
 
-  /* ACTION CARDS */
+  // ACTION CARDS
   actionCard: {
     width: "23%",
     backgroundColor: "#FFFFFF",
@@ -840,7 +903,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  /* NEARBY CARDS */
+  // NEARBY CARDS
   placeCard: {
     width: "23%",
     backgroundColor: "#FFFFFF",

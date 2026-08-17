@@ -31,7 +31,7 @@ export default function SplashScreen() {
 
       <TouchableOpacity
         style={styles.button}
-        onPress={() => router.replace("/login")}
+        onPress={() => router.replace("/signup")}
       >
         <Text style={styles.buttonText}>
           Get Started

@@ -1,432 +1,328 @@
-import {
-  getAuth,
-  signInWithPhoneNumber,
-} from "@react-native-firebase/auth";
+// src/services/phoneAuth.ts
 
+// ============================================
+// PHONE AUTH - TEST OTP + FIREBASE AUTH
+// ============================================
 
-// =====================================================
-// FIREBASE AUTH
-// =====================================================
+import { signInAnonymously } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db } from "../firebase";
 
-const auth = getAuth();
-
-
-// =====================================================
-// DEBUG FIREBASE CONFIG
-// =====================================================
-
-console.log(
-  "[PhoneAuth] Firebase app name:",
-  auth.app.name
-);
-
-console.log(
-  "[PhoneAuth] Firebase projectId:",
-  auth.app.options.projectId
-);
-
-console.log(
-  "[PhoneAuth] Firebase appId:",
-  auth.app.options.appId
-);
-
-console.log(
-  "[PhoneAuth] Firebase messagingSenderId:",
-  auth.app.options.messagingSenderId
-);
-
-
-// =====================================================
-// CONFIRMATION RESULT
-// =====================================================
-
-let confirmationResult:
-  Awaited<
-    ReturnType<
-      typeof signInWithPhoneNumber
-    >
-  > | null = null;
-
-
-// =====================================================
-// FORMAT INDIAN PHONE
-// =====================================================
-
-function formatIndianPhone(
-  phoneNumber: string
-): string {
-
-  const input =
-    phoneNumber.trim();
-
-  const digits =
-    input.replace(/\D/g, "");
-
-
-  // +91XXXXXXXXXX
-
-  if (
-    input.startsWith("+91") &&
-    digits.length >= 12
-  ) {
-    return `+91${digits.slice(-10)}`;
-  }
-
-
-  // 91XXXXXXXXXX
-
-  if (
-    digits.startsWith("91") &&
-    digits.length === 12
-  ) {
-    return `+${digits}`;
-  }
-
-
-  // XXXXXXXXXX
-
-  if (
-    digits.length === 10
-  ) {
-    return `+91${digits}`;
-  }
-
-
-  throw new Error(
-    "Valid 10 digit Indian mobile number enter karo."
-  );
+export interface PhoneOTPResult {
+  success: boolean;
+  phone: string;
+  otp?: string;
+  expiresAt?: number;
+  uid?: string;
 }
 
+// ============================================
+// STORED TEST OTP
+// ============================================
 
-// =====================================================
-// SEND REAL OTP
-// =====================================================
+let generatedOTP: string | null = null;
+let otpExpiresAt: number | null = null;
+let pendingPhone: string | null = null;
+
+// ============================================
+// VALIDATE INDIAN PHONE NUMBER
+// ============================================
+
+function validateIndianPhoneNumber(
+  phoneNumber: string
+): boolean {
+  if (!phoneNumber) {
+    return false;
+  }
+
+  const cleaned = phoneNumber
+    .trim()
+    .replace(/\s/g, "");
+
+  let number = cleaned;
+
+  if (number.startsWith("+91")) {
+    number = number.substring(3);
+  } else if (number.startsWith("91") && number.length === 12) {
+    number = number.substring(2);
+  }
+
+  return /^[6-9][0-9]{9}$/.test(number);
+}
+
+// ============================================
+// NORMALIZE PHONE NUMBER
+// ============================================
+
+function normalizePhoneNumber(
+  phoneNumber: string
+): string {
+  let number = phoneNumber
+    .trim()
+    .replace(/\s/g, "");
+
+  if (number.startsWith("+91")) {
+    number = number.substring(3);
+  } else if (
+    number.startsWith("91") &&
+    number.length === 12
+  ) {
+    number = number.substring(2);
+  }
+
+  return `+91${number}`;
+}
+
+// ============================================
+// GENERATE 6 DIGIT OTP
+// ============================================
+
+function generateOTP(): string {
+  return Math.floor(
+    100000 + Math.random() * 900000
+  ).toString();
+}
+
+// ============================================
+// SEND PHONE OTP
+// TEST OTP ONLY
+// ============================================
 
 export async function sendPhoneOTP(
   phoneNumber: string
-): Promise<void> {
-
-  if (
-    !phoneNumber?.trim()
-  ) {
-    throw new Error(
-      "Phone number enter karo."
-    );
-  }
-
-
-  const formattedPhone =
-    formatIndianPhone(
-      phoneNumber
-    );
-
-
-  console.log(
-    "[PhoneAuth] Sending REAL OTP:",
-    formattedPhone
-  );
-
-
-  // ---------------------------------------------------
-  // Runtime Firebase configuration
-  // ---------------------------------------------------
-
-  console.log(
-    "[PhoneAuth] Runtime Firebase project:",
-    auth.app.options.projectId
-  );
-
-  console.log(
-    "[PhoneAuth] Runtime Firebase appId:",
-    auth.app.options.appId
-  );
-
-
-  // ---------------------------------------------------
-  // Safety check
-  // ---------------------------------------------------
-
-  if (
-    auth.app.options.projectId !==
-    "smartvoicenavigation"
-  ) {
-
-    console.error(
-      "[PhoneAuth] WRONG FIREBASE PROJECT:",
-      auth.app.options.projectId
-    );
-
-    throw new Error(
-      `Wrong Firebase project loaded: ${auth.app.options.projectId}`
-    );
-  }
-
-
+): Promise<PhoneOTPResult> {
   try {
+    console.log("[PhoneAuth] Starting TEST OTP flow...");
+    console.log("[PhoneAuth] Input phone:", phoneNumber);
 
-    confirmationResult =
-      await signInWithPhoneNumber(
-        auth,
-        formattedPhone
+    if (!validateIndianPhoneNumber(phoneNumber)) {
+      console.error(
+        "[PhoneAuth] Invalid phone number:",
+        phoneNumber
       );
 
-
-    console.log(
-      "[PhoneAuth] REAL OTP sent successfully"
-    );
-
-  } catch (
-    error: any
-  ) {
-
-    confirmationResult =
-      null;
-
-
-    console.error(
-      "[PhoneAuth] Send OTP error code:",
-      error?.code
-    );
-
-    console.error(
-      "[PhoneAuth] Send OTP error message:",
-      error?.message
-    );
-
-    console.error(
-      "[PhoneAuth] Full Firebase error:",
-      error
-    );
-
-
-    switch (
-      error?.code
-    ) {
-
-      case "auth/invalid-phone-number":
-
-        throw new Error(
-          "Invalid mobile number."
-        );
-
-
-      case "auth/too-many-requests":
-
-        throw new Error(
-          "Too many OTP requests. Please try again later."
-        );
-
-
-      case "auth/quota-exceeded":
-
-        throw new Error(
-          "Firebase SMS quota exceeded. Please try again later."
-        );
-
-
-      case "auth/operation-not-allowed":
-
-        throw new Error(
-          "Phone Authentication is not enabled in Firebase Console."
-        );
-
-
-      case "auth/app-not-authorized":
-
-        throw new Error(
-          "Android app is not authorized in Firebase. Check SHA-1/SHA-256 and google-services.json."
-        );
-
-
-      case "auth/invalid-app-credential":
-
-        throw new Error(
-          "Firebase Android app credential is invalid. Check google-services.json and SHA-1/SHA-256."
-        );
-
-
-      case "auth/network-request-failed":
-
-        throw new Error(
-          "Network error. Check your internet connection and try again."
-        );
-
-
-      case "auth/internal-error":
-
-        throw new Error(
-          "Firebase internal error. Check Firebase project configuration and Identity Toolkit API."
-        );
-
-
-      default:
-
-        throw new Error(
-          error?.message ||
-            "Failed to send OTP."
-        );
+      throw {
+        code: "INVALID_PHONE_NUMBER",
+        message:
+          "Invalid phone number. Please enter a valid 10-digit Indian mobile number.",
+      };
     }
+
+    const phone = normalizePhoneNumber(phoneNumber);
+
+    console.log("[PhoneAuth] Valid phone:", phone);
+
+    const otp = generateOTP();
+
+    generatedOTP = otp;
+    pendingPhone = phone;
+    otpExpiresAt = Date.now() + 5 * 60 * 1000;
+
+    console.log("====================================");
+    console.log("[TEST OTP] Generated:", otp);
+    console.log("[TEST OTP] Phone:", phone);
+    console.log("[TEST OTP] Valid for: 5 minutes");
+    console.log("====================================");
+
+    console.log("[PhoneAuth] TEST OTP ready.");
+    console.log("[PhoneAuth] No SMS will be sent.");
+
+    return {
+      success: true,
+      phone,
+      otp,
+      expiresAt: otpExpiresAt,
+    };
+  } catch (error: any) {
+    console.error("[PhoneAuth] Error code:", error?.code);
+    console.error("[PhoneAuth] Error message:", error?.message);
+    throw error;
   }
 }
 
-
-// =====================================================
-// VERIFY REAL OTP
-// =====================================================
+// ============================================
+// VERIFY PHONE OTP
+// TEST OTP -> FIREBASE AUTH
+//
+// IMPORTANT:
+// This is TEST OTP, so Firebase Phone Auth is
+// NOT being used here.
+//
+// After OTP verification we create/use a
+// Firebase Anonymous Auth session. This gives
+// the app a real Firebase auth.currentUser,
+// which allows Profile/Firestore to work.
+//
+// For production SMS OTP, replace this with
+// Firebase Phone Auth / verification backend.
+// ============================================
 
 export async function verifyPhoneOTP(
-  otp: string
-) {
-
-  if (
-    !confirmationResult
-  ) {
-
-    throw new Error(
-      "Pehle OTP send karo."
-    );
-  }
-
-
-  const code =
-    otp
-      .trim()
-      .replace(/\D/g, "");
-
-
-  if (
-    !/^\d{6}$/.test(code)
-  ) {
-
-    throw new Error(
-      "6 digit OTP enter karo."
-    );
-  }
-
-
-  console.log(
-    "[PhoneAuth] Verifying REAL OTP..."
-  );
-
-
+  enteredOTP: string
+): Promise<PhoneOTPResult> {
   try {
+    console.log("[PhoneAuth] Verifying TEST OTP...");
 
-    const result =
-      await confirmationResult.confirm(
-        code
+    if (!generatedOTP || !pendingPhone) {
+      throw {
+        code: "OTP_NOT_FOUND",
+        message: "Please request OTP first.",
+      };
+    }
+
+    if (
+      otpExpiresAt &&
+      Date.now() > otpExpiresAt
+    ) {
+      generatedOTP = null;
+      otpExpiresAt = null;
+      pendingPhone = null;
+
+      console.error("[PhoneAuth] OTP expired.");
+
+      throw {
+        code: "OTP_EXPIRED",
+        message:
+          "OTP has expired. Please request a new OTP.",
+      };
+    }
+
+    const entered = enteredOTP.trim();
+
+    if (!/^[0-9]{6}$/.test(entered)) {
+      throw {
+        code: "INVALID_OTP",
+        message:
+          "Please enter a valid 6-digit OTP.",
+      };
+    }
+
+    if (entered !== generatedOTP) {
+      console.error(
+        "[PhoneAuth] Invalid OTP entered:",
+        entered
       );
 
+      throw {
+        code: "INVALID_OTP",
+        message:
+          "Invalid OTP. Please check the OTP and try again.",
+      };
+    }
 
-    confirmationResult =
-      null;
+    // ==========================================
+    // OTP IS CORRECT
+    // ==========================================
 
+    const verifiedPhone = pendingPhone;
 
     console.log(
-      "[PhoneAuth] Verification successful:",
-      result.user.uid
+      "[PhoneAuth] OTP verified successfully."
     );
 
+    // ==========================================
+    // CREATE / KEEP FIREBASE AUTH SESSION
+    // ==========================================
 
-    return result.user;
+    let firebaseUser = auth.currentUser;
 
-  } catch (
-    error: any
-  ) {
+    if (!firebaseUser) {
+      console.log(
+        "[PhoneAuth] Creating Firebase test auth user..."
+      );
 
+      const credential = await signInAnonymously(auth);
+
+      firebaseUser = credential.user;
+    } else {
+      console.log(
+        "[PhoneAuth] Firebase user already exists:",
+        firebaseUser.uid
+      );
+    }
+
+    if (!firebaseUser) {
+      throw {
+        code: "FIREBASE_AUTH_FAILED",
+        message:
+          "OTP was verified, but Firebase authentication failed.",
+      };
+    }
+
+    console.log(
+      "[PhoneAuth] Firebase Auth UID:",
+      firebaseUser.uid
+    );
+
+    // ==========================================
+    // SAVE PHONE PROFILE DATA
+    // ==========================================
+
+    // Do NOT block login on Firestore.
+    // Authentication has already succeeded, so the user must be
+    // allowed to continue to Index even if Firestore is slow/offline.
+    void setDoc(
+      doc(db, "users", firebaseUser.uid),
+      {
+        phone: verifiedPhone,
+        authProvider: "phone-test",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    )
+      .then(() => {
+        console.log(
+          "[PhoneAuth] Phone profile saved:",
+          verifiedPhone
+        );
+      })
+      .catch((firestoreError: any) => {
+        console.error(
+          "[PhoneAuth] Phone profile save failed:",
+          firestoreError?.code,
+          firestoreError?.message
+        );
+      });
+
+    // Clear OTP immediately after Firebase Auth succeeds.
+    generatedOTP = null;
+    otpExpiresAt = null;
+    pendingPhone = null;
+
+    console.log(
+      "[PhoneAuth] TEST OTP login completed successfully."
+    );
+
+    return {
+      success: true,
+      phone: verifiedPhone,
+      uid: firebaseUser.uid,
+    };
+  } catch (error: any) {
     console.error(
-      "[PhoneAuth] Verify error code:",
+      "[PhoneAuth] OTP verification error:",
       error?.code
     );
 
     console.error(
-      "[PhoneAuth] Verify error message:",
+      "[PhoneAuth] OTP verification message:",
       error?.message
-    );
-
-
-    if (
-      error?.code ===
-      "auth/invalid-verification-code"
-    ) {
-
-      throw new Error(
-        "Incorrect OTP. Please enter the OTP received by SMS."
-      );
-    }
-
-
-    if (
-      error?.code ===
-      "auth/code-expired"
-    ) {
-
-      confirmationResult =
-        null;
-
-
-      throw new Error(
-        "OTP expired. Please request a new OTP."
-      );
-    }
-
-
-    throw new Error(
-      error?.message ||
-        "OTP verification failed."
-    );
-  }
-}
-
-
-// =====================================================
-// LOGOUT
-// =====================================================
-
-export async function logoutPhoneUser() {
-
-  try {
-
-    await auth.signOut();
-
-    confirmationResult =
-      null;
-
-
-    console.log(
-      "[PhoneAuth] Logged out successfully"
-    );
-
-  } catch (
-    error
-  ) {
-
-    console.error(
-      "[PhoneAuth] Logout error:",
-      error
     );
 
     throw error;
   }
 }
 
+// ============================================
+// OPTIONAL: CLEAR OTP
+// ============================================
 
-// =====================================================
-// GET CURRENT USER
-// =====================================================
+export function clearPhoneOTP(): void {
+  generatedOTP = null;
+  otpExpiresAt = null;
+  pendingPhone = null;
 
-export function getPhoneUser() {
-
-  return auth.currentUser;
-}
-
-
-// =====================================================
-// CHECK OTP
-// =====================================================
-
-export function isOTPAvailable() {
-
-  return (
-    confirmationResult !== null
+  console.log(
+    "[PhoneAuth] TEST OTP cleared."
   );
 }

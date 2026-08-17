@@ -9,66 +9,201 @@ import {
   TouchableOpacity,
   Alert,
 } from "react-native";
+
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { signInWithGoogle } from "../services/googleAuth";
 
+import { signInWithGoogle } from "../services/googleAuth";
 import { loginUser } from "../services/authService";
-import { sendPhoneOTP, verifyPhoneOTP } from "../services/phoneAuth";
+import {
+  sendPhoneOTP,
+  verifyPhoneOTP,
+  resetOTP,
+} from "../services/phoneAuth";
+
+type LoginMode =
+  | "choice"
+  | "email"
+  | "phone";
 
 export default function LoginScreen() {
-  // ==================================================
-  // MODE STATE
-  // ==================================================
-  const [showPhoneLogin, setShowPhoneLogin] = useState(false);
+  // ============================================
+  // LOGIN MODE
+  // ============================================
 
-  // ==================================================
-  // EMAIL LOGIN STATES
-  // ==================================================
+  const [loginMode, setLoginMode] =
+    useState<LoginMode>("choice");
+
+  // ============================================
+  // EMAIL LOGIN
+  // ============================================
+
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [secureText, setSecureText] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [password, setPassword] =
+    useState("");
 
-  // ==================================================
-  // PHONE LOGIN STATES
-  // ==================================================
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [phoneLoading, setPhoneLoading] = useState(false);
-  const [phoneError, setPhoneError] = useState("");
+  const [secureText, setSecureText] =
+    useState(true);
 
-  // ==================================================
-  // EMAIL LOGIN HANDLER
-  // ==================================================
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields.");
+  const [loading, setLoading] =
+    useState(false);
+
+  // ============================================
+  // GOOGLE LOGIN
+  // ============================================
+
+  const [googleLoading, setGoogleLoading] =
+    useState(false);
+
+  // ============================================
+  // PHONE LOGIN
+  // ============================================
+
+  const [phone, setPhone] =
+    useState("");
+
+  const [otp, setOtp] =
+    useState("");
+
+  const [otpSent, setOtpSent] =
+    useState(false);
+
+  const [phoneLoading, setPhoneLoading] =
+    useState(false);
+
+  const [phoneError, setPhoneError] =
+    useState("");
+
+  // ============================================
+  // EMAIL LOGIN
+  // ============================================
+
+  const handleEmailLogin = async () => {
+    if (!email.trim()) {
+      Alert.alert(
+        "Error",
+        "Please enter your email."
+      );
+      return;
+    }
+
+    if (!password.trim()) {
+      Alert.alert(
+        "Error",
+        "Please enter your password."
+      );
+      return;
+    }
+
+    if (loading) {
       return;
     }
 
     try {
       setLoading(true);
-      await loginUser(email.trim(), password);
+
+      console.log(
+        "[Login] Email login started..."
+      );
+
+      await loginUser(
+        email.trim().toLowerCase(),
+        password
+      );
+
+      console.log(
+        "[Login] Email login successful."
+      );
+
       router.replace("/(tabs)");
     } catch (error: any) {
-      let message = "Invalid email or password.";
-      Alert.alert("Login Failed", message);
+      console.error(
+        "[Login] Email login error:",
+        error
+      );
+
+      Alert.alert(
+        "Login Failed",
+        error?.message ||
+          "Invalid email or password."
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // ==================================================
-  // SEND PHONE OTP
-  // ==================================================
-  const handleSendOTP = async () => {
-    const cleanPhone = phone.replace(/\D/g, "");
+  // ============================================
+  // GOOGLE LOGIN
+  // ============================================
 
-    if (!/^\d{10}$/.test(cleanPhone)) {
-      setPhoneError("Please enter a valid 10 digit mobile number.");
+  const handleGoogleLogin = async () => {
+    if (googleLoading) {
+      return;
+    }
+
+    try {
+      setGoogleLoading(true);
+
+      console.log(
+        "[Login] Google login started..."
+      );
+
+      const result =
+        await signInWithGoogle();
+
+      if (result.success) {
+        console.log(
+          "[Login] Google login successful."
+        );
+
+        router.replace("/(tabs)");
+        return;
+      }
+
+      if (!result.cancelled) {
+        Alert.alert(
+          "Google Login Failed",
+          result.message ||
+            "Please try again."
+        );
+      }
+    } catch (error: any) {
+      console.error(
+        "[Login] Google login error:",
+        error
+      );
+
+      Alert.alert(
+        "Google Login Failed",
+        error?.message ||
+          "Unable to sign in with Google."
+      );
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // ============================================
+  // SEND PHONE OTP
+  // ============================================
+
+  const handleSendOTP = async () => {
+    if (phoneLoading) {
+      return;
+    }
+
+    const cleanPhone =
+      phone.replace(/\D/g, "");
+
+    // Indian mobile validation
+    if (
+      !/^[6-9][0-9]{9}$/.test(
+        cleanPhone
+      )
+    ) {
+      setPhoneError(
+        "Please enter a valid 10 digit mobile number."
+      );
       return;
     }
 
@@ -76,23 +211,66 @@ export default function LoginScreen() {
       setPhoneError("");
       setPhoneLoading(true);
 
-      await sendPhoneOTP(cleanPhone);
+      console.log(
+        "[Login] Requesting TEST OTP for:",
+        cleanPhone
+      );
+
+      await sendPhoneOTP(
+        cleanPhone
+      );
+
+      console.log(
+        "[Login] TEST OTP generated."
+      );
+
+      setOtp("");
       setOtpSent(true);
     } catch (error: any) {
-      setPhoneError("Failed to send OTP. Try again.");
+      console.error(
+        "[Login] SEND OTP ERROR:",
+        error
+      );
+
+      console.error(
+        "[Login] Code:",
+        error?.code
+      );
+
+      console.error(
+        "[Login] Message:",
+        error?.message
+      );
+
+      setPhoneError(
+        error?.message ||
+          "Failed to generate OTP."
+      );
     } finally {
       setPhoneLoading(false);
     }
   };
 
-  // ==================================================
-  // VERIFY PHONE OTP
-  // ==================================================
-  const handleVerifyOTP = async () => {
-    const cleanOTP = otp.replace(/\D/g, "");
+  // ============================================
+  // VERIFY OTP
+  // ============================================
 
-    if (!/^\d{6}$/.test(cleanOTP)) {
-      setPhoneError("Please enter the 6 digit OTP.");
+  const handleVerifyOTP = async () => {
+    if (phoneLoading) {
+      return;
+    }
+
+    const cleanOTP =
+      otp.replace(/\D/g, "");
+
+    if (
+      !/^[0-9]{6}$/.test(
+        cleanOTP
+      )
+    ) {
+      setPhoneError(
+        "Please enter the 6 digit OTP."
+      );
       return;
     }
 
@@ -100,293 +278,803 @@ export default function LoginScreen() {
       setPhoneError("");
       setPhoneLoading(true);
 
-      await verifyPhoneOTP(cleanOTP);
+      console.log(
+        "[Login] Verifying TEST OTP..."
+      );
+
+      const user =
+        await verifyPhoneOTP(
+          cleanOTP
+        );
+
+      console.log(
+        "[Login] OTP login successful."
+      );
+
+      if (user) {
+        console.log(
+          "[Login] Phone:",
+          user.phoneNumber
+        );
+      }
+
       router.replace("/(tabs)");
     } catch (error: any) {
-      setPhoneError("Incorrect OTP. Please try again.");
+      console.error(
+        "[Login] VERIFY OTP ERROR:",
+        error
+      );
+
+      console.error(
+        "[Login] Code:",
+        error?.code
+      );
+
+      console.error(
+        "[Login] Message:",
+        error?.message
+      );
+
+      setPhoneError(
+        error?.message ||
+          "OTP verification failed."
+      );
     } finally {
       setPhoneLoading(false);
     }
   };
 
-  const resetPhoneFlow = () => {
-    setShowPhoneLogin(false);
-    setOtpSent(false);
+  // ============================================
+  // RESEND OTP
+  // ============================================
+
+  const handleResendOTP = async () => {
+    if (phoneLoading) {
+      return;
+    }
+
+    resetOTP();
+
     setOtp("");
+    setOtpSent(false);
+    setPhoneError("");
+
+    setTimeout(() => {
+      handleSendOTP();
+    }, 100);
+  };
+
+  // ============================================
+  // CHANGE PHONE NUMBER
+  // ============================================
+
+  const handleChangeNumber = () => {
+    resetOTP();
+
+    setOtp("");
+    setOtpSent(false);
+    setPhoneError("");
+  };
+
+  // ============================================
+  // BACK TO CHOICE
+  // ============================================
+
+  const handleBackToChoice = () => {
+    resetOTP();
+
+    setLoginMode("choice");
+
+    setOtp("");
+    setOtpSent(false);
     setPhone("");
     setPhoneError("");
   };
 
+  // ============================================
+  // FORGOT PASSWORD
+  // ============================================
+
+  const handleForgotPassword = () => {
+    Alert.alert(
+      "Forgot Password",
+      "Please use your registered email to reset your password."
+    );
+  };
+
+  // ============================================
+  // CHOICE SCREEN
+  // ============================================
+
+  if (loginMode === "choice") {
+    return (
+      <SafeAreaView
+        style={styles.container}
+      >
+        <View style={styles.choiceContent}>
+          {/* TITLE */}
+
+          <Text style={styles.title}>
+            Welcome Back 👋
+          </Text>
+
+          <Text style={styles.subtitle}>
+            Choose how you want to login
+          </Text>
+
+          {/* EMAIL */}
+
+          <TouchableOpacity
+            style={styles.choiceButton}
+            activeOpacity={0.8}
+            onPress={() =>
+              setLoginMode("email")
+            }
+          >
+            <View
+              style={styles.choiceIcon}
+            >
+              <Ionicons
+                name="mail-outline"
+                size={25}
+                color="#2563EB"
+              />
+            </View>
+
+            <View
+              style={styles.choiceTextContainer}
+            >
+              <Text
+                style={styles.choiceTitle}
+              >
+                Login with Email
+              </Text>
+
+              <Text
+                style={styles.choiceSubtitle}
+              >
+                Use your email and password
+              </Text>
+            </View>
+
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color="#9CA3AF"
+            />
+          </TouchableOpacity>
+
+          {/* PHONE */}
+
+          <TouchableOpacity
+            style={styles.choiceButton}
+            activeOpacity={0.8}
+            onPress={() =>
+              setLoginMode("phone")
+            }
+          >
+            <View
+              style={styles.choiceIcon}
+            >
+              <Ionicons
+                name="call-outline"
+                size={25}
+                color="#2563EB"
+              />
+            </View>
+
+            <View
+              style={styles.choiceTextContainer}
+            >
+              <Text
+                style={styles.choiceTitle}
+              >
+                Login with Phone
+              </Text>
+
+              <Text
+                style={styles.choiceSubtitle}
+              >
+                Login using OTP
+              </Text>
+            </View>
+
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color="#9CA3AF"
+            />
+          </TouchableOpacity>
+
+          {/* GOOGLE */}
+
+          <TouchableOpacity
+            style={styles.googleButton}
+            activeOpacity={0.8}
+            onPress={handleGoogleLogin}
+            disabled={googleLoading}
+          >
+            {googleLoading ? (
+              <ActivityIndicator
+                size="small"
+                color="#4285F4"
+              />
+            ) : (
+              <Ionicons
+                name="logo-google"
+                size={25}
+                color="#4285F4"
+              />
+            )}
+
+            <Text
+              style={styles.googleText}
+            >
+              Continue with Google
+            </Text>
+          </TouchableOpacity>
+
+          {/* DIVIDER */}
+
+          <View
+            style={styles.dividerContainer}
+          >
+            <View
+              style={styles.dividerLine}
+            />
+
+            <Text
+              style={styles.dividerText}
+            >
+              Secure Login
+            </Text>
+
+            <View
+              style={styles.dividerLine}
+            />
+          </View>
+
+          {/* SIGN UP */}
+
+          <TouchableOpacity
+            style={styles.signupContainer}
+            onPress={() =>
+              router.push("/signup")
+            }
+          >
+            <Text
+              style={styles.signupText}
+            >
+              Don't have an account?{" "}
+              <Text
+                style={styles.signupLink}
+              >
+                Sign Up
+              </Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ============================================
+  // EMAIL SCREEN
+  // ============================================
+
+  if (loginMode === "email") {
+    return (
+      <SafeAreaView
+        style={styles.container}
+      >
+        <View style={styles.content}>
+          {/* BACK */}
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBackToChoice}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color="#111827"
+            />
+
+            <Text
+              style={styles.backText}
+            >
+              Back
+            </Text>
+          </TouchableOpacity>
+
+          {/* TITLE */}
+
+          <Text style={styles.title}>
+            Welcome Back 👋
+          </Text>
+
+          <Text style={styles.subtitle}>
+            Login with your email
+          </Text>
+
+          {/* EMAIL */}
+
+          <Text style={styles.label}>
+            Email
+          </Text>
+
+          <View
+            style={styles.inputContainer}
+          >
+            <Ionicons
+              name="mail-outline"
+              size={22}
+              color="#9CA3AF"
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your email"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={email}
+              onChangeText={setEmail}
+            />
+          </View>
+
+          {/* PASSWORD */}
+
+          <Text
+            style={[
+              styles.label,
+              {
+                marginTop: 20,
+              },
+            ]}
+          >
+            Password
+          </Text>
+
+          <View
+            style={styles.inputContainer}
+          >
+            <Ionicons
+              name="lock-closed-outline"
+              size={22}
+              color="#9CA3AF"
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your password"
+              placeholderTextColor="#9CA3AF"
+              secureTextEntry={secureText}
+              value={password}
+              onChangeText={setPassword}
+            />
+
+            <TouchableOpacity
+              onPress={() =>
+                setSecureText(
+                  !secureText
+                )
+              }
+            >
+              <Ionicons
+                name={
+                  secureText
+                    ? "eye-off-outline"
+                    : "eye-outline"
+                }
+                size={22}
+                color="#9CA3AF"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* FORGOT PASSWORD */}
+
+          <TouchableOpacity
+            style={styles.forgotContainer}
+            onPress={
+              handleForgotPassword
+            }
+          >
+            <Text
+              style={styles.forgotText}
+            >
+              Forgot Password?
+            </Text>
+          </TouchableOpacity>
+
+          {/* LOGIN */}
+
+          <TouchableOpacity
+            style={[
+              styles.loginButton,
+              loading &&
+                styles.disabledButton,
+            ]}
+            activeOpacity={0.8}
+            onPress={handleEmailLogin}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator
+                color="#FFFFFF"
+              />
+            ) : (
+              <Text
+                style={styles.loginText}
+              >
+                Login
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* GOOGLE */}
+
+          <View
+            style={styles.dividerContainer}
+          >
+            <View
+              style={styles.dividerLine}
+            />
+
+            <Text
+              style={styles.dividerText}
+            >
+              Or
+            </Text>
+
+            <View
+              style={styles.dividerLine}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={styles.googleButton}
+            onPress={handleGoogleLogin}
+            disabled={googleLoading}
+          >
+            {googleLoading ? (
+              <ActivityIndicator
+                color="#4285F4"
+              />
+            ) : (
+              <Ionicons
+                name="logo-google"
+                size={24}
+                color="#4285F4"
+              />
+            )}
+
+            <Text
+              style={styles.googleText}
+            >
+              Continue with Google
+            </Text>
+          </TouchableOpacity>
+
+          {/* PHONE */}
+
+          <TouchableOpacity
+            style={styles.switchMethodButton}
+            onPress={() =>
+              setLoginMode("phone")
+            }
+          >
+            <Ionicons
+              name="call-outline"
+              size={19}
+              color="#2563EB"
+            />
+
+            <Text
+              style={styles.switchMethodText}
+            >
+              Login with Phone
+            </Text>
+          </TouchableOpacity>
+
+          {/* SIGN UP */}
+
+          <TouchableOpacity
+            style={styles.signupContainer}
+            onPress={() =>
+              router.push("/signup")
+            }
+          >
+            <Text
+              style={styles.signupText}
+            >
+              Don't have an account?{" "}
+              <Text
+                style={styles.signupLink}
+              >
+                Sign Up
+              </Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ============================================
+  // PHONE SCREEN
+  // ============================================
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={styles.container}
+    >
       <View style={styles.content}>
+        {/* BACK */}
+
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleBackToChoice}
+        >
+          <Ionicons
+            name="arrow-back"
+            size={24}
+            color="#111827"
+          />
+
+          <Text
+            style={styles.backText}
+          >
+            Back
+          </Text>
+        </TouchableOpacity>
 
         {/* TITLE */}
-        <Text style={styles.title}>Welcome Back 👋</Text>
-        <Text style={styles.subtitle}>
-          {showPhoneLogin ? "Sign in with Mobile OTP" : "Sign in to continue"}
+
+        <Text style={styles.title}>
+          Welcome Back 👋
         </Text>
 
-        {!showPhoneLogin ? (
-          /* ==================================================
-             EMAIL LOGIN FORM (DEFAULT)
-             ================================================== */
+        <Text style={styles.subtitle}>
+          Login with your phone number
+        </Text>
+
+        {!otpSent ? (
           <>
-            {/* EMAIL */}
-            <Text style={styles.label}>Email</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={22} color="#9CA3AF" />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your email"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
+            {/* PHONE NUMBER */}
 
-            {/* PASSWORD */}
-            <Text style={[styles.label, { marginTop: 20 }]}>Password</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={22} color="#9CA3AF" />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor="#9CA3AF"
-                secureTextEntry={secureText}
-                value={password}
-                onChangeText={setPassword}
-              />
-              <TouchableOpacity onPress={() => setSecureText(!secureText)}>
-                <Ionicons
-                  name={secureText ? "eye-off-outline" : "eye-outline"}
-                  size={22}
-                  color="#9CA3AF"
-                />
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.label}>
+              Mobile Number
+            </Text>
 
-            {/* FORGOT PASSWORD */}
-            <TouchableOpacity
-              style={styles.forgotContainer}
-              onPress={() => router.push("/forgot-password")}
+            <View
+              style={styles.phoneInputContainer}
             >
-              <Text style={styles.forgotText}>Forgot Password?</Text>
-            </TouchableOpacity>
+              <Ionicons
+                name="call-outline"
+                size={22}
+                color="#9CA3AF"
+              />
 
-            {/* LOGIN BUTTON */}
+              <Text
+                style={styles.countryCode}
+              >
+                +91
+              </Text>
+
+              <TextInput
+                style={styles.phoneInput}
+                placeholder="Enter 10 digit mobile number"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="phone-pad"
+                maxLength={10}
+                value={phone}
+                editable={!phoneLoading}
+                onChangeText={(text) => {
+                  setPhoneError("");
+
+                  setPhone(
+                    text.replace(
+                      /\D/g,
+                      ""
+                    )
+                  );
+                }}
+              />
+            </View>
+
+            {/* ERROR */}
+
+            {phoneError ? (
+              <Text
+                style={styles.phoneError}
+              >
+                {phoneError}
+              </Text>
+            ) : null}
+
+            {/* SEND OTP */}
+
             <TouchableOpacity
-              style={styles.loginButton}
+              style={[
+                styles.loginButton,
+                phoneLoading &&
+                  styles.disabledButton,
+              ]}
               activeOpacity={0.8}
-              onPress={handleLogin}
-              disabled={loading}
+              onPress={handleSendOTP}
+              disabled={phoneLoading}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
+              {phoneLoading ? (
+                <ActivityIndicator
+                  color="#FFFFFF"
+                />
               ) : (
-                <Text style={styles.loginText}>Login</Text>
+                <Text
+                  style={styles.loginText}
+                >
+                  Send OTP
+                </Text>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            {/* OTP */}
+
+            <Text style={styles.label}>
+              Enter OTP
+            </Text>
+
+            <Text
+              style={styles.otpDescription}
+            >
+              TEST OTP for +91 {phone}
+              {"\n"}
+              Check your terminal / Metro
+              console.
+            </Text>
+
+            <View
+              style={styles.inputContainer}
+            >
+              <Ionicons
+                name="keypad-outline"
+                size={22}
+                color="#9CA3AF"
+              />
+
+              <TextInput
+                style={styles.otpInput}
+                placeholder="6 digit OTP"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
+                maxLength={6}
+                value={otp}
+                editable={!phoneLoading}
+                autoFocus
+                onChangeText={(text) => {
+                  setPhoneError("");
+
+                  setOtp(
+                    text.replace(
+                      /\D/g,
+                      ""
+                    )
+                  );
+                }}
+              />
+            </View>
+
+            {/* ERROR */}
+
+            {phoneError ? (
+              <Text
+                style={styles.phoneError}
+              >
+                {phoneError}
+              </Text>
+            ) : null}
+
+            {/* VERIFY */}
+
+            <TouchableOpacity
+              style={[
+                styles.loginButton,
+                phoneLoading &&
+                  styles.disabledButton,
+              ]}
+              activeOpacity={0.8}
+              onPress={handleVerifyOTP}
+              disabled={phoneLoading}
+            >
+              {phoneLoading ? (
+                <ActivityIndicator
+                  color="#FFFFFF"
+                />
+              ) : (
+                <Text
+                  style={styles.loginText}
+                >
+                  Verify OTP
+                </Text>
               )}
             </TouchableOpacity>
 
-            {/* DIVIDER */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Or continue with</Text>
-              <View style={styles.dividerLine} />
-            </View>
+            {/* RESEND */}
 
-            {/* LOGOS ROW (GOOGLE, APPLE, PHONE) */}
-            <View style={styles.socialRow}>
-              {/* GOOGLE */}
-              <TouchableOpacity
-                style={styles.socialIconBtn}
-                activeOpacity={0.8}
-                disabled={googleLoading}
-                onPress={async () => {
-                  try {
-                    setGoogleLoading(true);
-
-                    const result =
-                      await signInWithGoogle();
-
-                    if (result.success) {
-                      router.replace("/(tabs)");
-                      return;
-                    }
-
-                    if (!result.cancelled) {
-                      Alert.alert(
-                        "Google Login Failed",
-                        result.message ||
-                          "Please try again."
-                      );
-                    }
-                  } catch (error: any) {
-                    console.log(
-                      "[Login] Google button error:",
-                      error
-                    );
-
-                    Alert.alert(
-                      "Google Login Failed",
-                      error?.message ||
-                        "Unable to sign in with Google."
-                    );
-                  } finally {
-                    setGoogleLoading(false);
-                  }
-                }}
-              >
-                {googleLoading ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#4285F4"
-                  />
-                ) : (
-                  <Ionicons
-                    name="logo-google"
-                    size={26}
-                    color="#4285F4"
-                  />
-                )}
-              </TouchableOpacity>
-
-              {/* APPLE ICON */}
-              <TouchableOpacity
-                style={styles.socialIconBtn}
-                activeOpacity={0.8}
-                onPress={() => Alert.alert("Apple Login", "Apple Sign In requested")}
-              >
-                <Ionicons name="logo-apple" size={26} color="#000000" />
-              </TouchableOpacity>
-
-              {/* PHONE ICON (Opens OTP Screen) */}
-              <TouchableOpacity
-                style={styles.socialIconBtn}
-                activeOpacity={0.8}
-                onPress={() => setShowPhoneLogin(true)}
-              >
-                <Ionicons name="call" size={24} color="#2563EB" />
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          /* ==================================================
-             PHONE OTP PAGE
-             ================================================== */
-          <View style={styles.phoneContainer}>
-            {!otpSent ? (
-              <>
-                <Text style={styles.label}>Mobile Number</Text>
-                <View style={styles.phoneInputContainer}>
-                  <Ionicons name="call-outline" size={22} color="#9CA3AF" />
-                  <Text style={styles.countryCode}>+91</Text>
-                  <TextInput
-                    style={styles.phoneInput}
-                    placeholder="Enter 10 digit mobile number"
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    value={phone}
-                    onChangeText={(text) => {
-                      setPhoneError("");
-                      setPhone(text.replace(/\D/g, ""));
-                    }}
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={styles.loginButton}
-                  activeOpacity={0.8}
-                  onPress={handleSendOTP}
-                  disabled={phoneLoading}
-                >
-                  {phoneLoading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.loginText}>Send OTP</Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={styles.label}>Enter OTP</Text>
-                <Text style={styles.otpDescription}>
-                  OTP sent to +91 {phone}
-                </Text>
-
-                <View style={styles.inputContainer}>
-                  <Ionicons name="keypad-outline" size={22} color="#9CA3AF" />
-                  <TextInput
-                    style={styles.otpInput}
-                    placeholder="6 digit OTP"
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    value={otp}
-                    onChangeText={(text) => {
-                      setPhoneError("");
-                      setOtp(text.replace(/\D/g, ""));
-                    }}
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={styles.loginButton}
-                  activeOpacity={0.8}
-                  onPress={handleVerifyOTP}
-                  disabled={phoneLoading}
-                >
-                  {phoneLoading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.loginText}>Verify OTP</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.changeNumberContainer}
-                  onPress={() => {
-                    setOtp("");
-                    setOtpSent(false);
-                    setPhoneError("");
-                  }}
-                >
-                  <Text style={styles.changeNumber}>
-                    ← Change phone number
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {phoneError ? (
-              <Text style={styles.phoneError}>{phoneError}</Text>
-            ) : null}
-
-            {/* BACK TO EMAIL LOGIN */}
             <TouchableOpacity
-              style={styles.backToEmailBtn}
-              onPress={resetPhoneFlow}
+              style={styles.resendContainer}
+              onPress={handleResendOTP}
+              disabled={phoneLoading}
             >
-              <Text style={styles.backToEmailText}>
-                ← Back to Email Login
+              <Text
+                style={styles.resendText}
+              >
+                Didn't receive OTP?{" "}
+                Resend OTP
               </Text>
             </TouchableOpacity>
-          </View>
+
+            {/* CHANGE NUMBER */}
+
+            <TouchableOpacity
+              style={
+                styles.changeNumberContainer
+              }
+              onPress={
+                handleChangeNumber
+              }
+            >
+              <Text
+                style={styles.changeNumber}
+              >
+                ← Change phone number
+              </Text>
+            </TouchableOpacity>
+          </>
         )}
 
-        {/* ==================================================
-            SIGN UP LINK
-            ================================================== */}
+        {/* EMAIL SWITCH */}
+
+        <TouchableOpacity
+          style={styles.switchMethodButton}
+          onPress={() =>
+            setLoginMode("email")
+          }
+        >
+          <Ionicons
+            name="mail-outline"
+            size={19}
+            color="#2563EB"
+          />
+
+          <Text
+            style={styles.switchMethodText}
+          >
+            Login with Email
+          </Text>
+        </TouchableOpacity>
+
+        {/* SIGN UP */}
+
         <TouchableOpacity
           style={styles.signupContainer}
-          onPress={() => router.push("/signup")}
+          onPress={() =>
+            router.push("/signup")
+          }
         >
-          <Text style={styles.signupText}>
+          <Text
+            style={styles.signupText}
+          >
             Don't have an account?{" "}
-            <Text style={styles.signupLink}>Sign Up</Text>
+            <Text
+              style={styles.signupLink}
+            >
+              Sign Up
+            </Text>
           </Text>
         </TouchableOpacity>
       </View>
@@ -394,37 +1082,129 @@ export default function LoginScreen() {
   );
 }
 
+// =====================================================
+// STYLES
+// =====================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
+
   content: {
     flex: 1,
     paddingHorizontal: 25,
-    paddingTop: 60,
+    paddingTop: 35,
   },
+
+  choiceContent: {
+    flex: 1,
+    paddingHorizontal: 25,
+    paddingTop: 80,
+  },
+
   title: {
     fontSize: 34,
     fontWeight: "700",
     color: "#2563EB",
     textAlign: "center",
   },
+
   subtitle: {
     marginTop: 10,
-    marginBottom: 25,
+    marginBottom: 30,
     fontSize: 18,
     color: "#6B7280",
     textAlign: "center",
   },
 
-  // LABELS & INPUTS
+  // ============================================
+  // CHOICE BUTTONS
+  // ============================================
+
+  choiceButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    minHeight: 78,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 16,
+    marginBottom: 15,
+
+    elevation: 3,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 5,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+  },
+
+  choiceIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  choiceTextContainer: {
+    flex: 1,
+    marginLeft: 14,
+  },
+
+  choiceTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  choiceSubtitle: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+
+  // ============================================
+  // BACK
+  // ============================================
+
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    marginBottom: 25,
+  },
+
+  backText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+
+  // ============================================
+  // LABEL
+  // ============================================
+
   label: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
     marginBottom: 10,
   },
+
+  // ============================================
+  // INPUT
+  // ============================================
+
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -434,93 +1214,29 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     paddingHorizontal: 16,
     height: 58,
+
     elevation: 2,
+
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
   },
+
   input: {
     flex: 1,
     marginLeft: 10,
     fontSize: 16,
     color: "#111827",
   },
-  forgotContainer: {
-    alignSelf: "flex-end",
-    marginTop: 15,
-  },
-  forgotText: {
-    color: "#2563EB",
-    fontSize: 15,
-    fontWeight: "600",
-  },
 
-  // LOGIN BUTTON
-  loginButton: {
-    marginTop: 25,
-    height: 58,
-    borderRadius: 16,
-    backgroundColor: "#2563EB",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#2563EB",
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 6,
-  },
-  loginText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
-  },
+  // ============================================
+  // PHONE
+  // ============================================
 
-  // DIVIDER
-  dividerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 25,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    color: "#9CA3AF",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
-  // SOCIAL LOGOS ROW
-  socialRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 20,
-  },
-  socialIconBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
-  },
-
-  // PHONE OTP FORM
-  phoneContainer: {
-    width: "100%",
-  },
   phoneInputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -530,29 +1246,43 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     paddingHorizontal: 16,
     height: 58,
+
     elevation: 2,
+
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
   },
+
   countryCode: {
     marginLeft: 8,
-    marginRight: 5,
+    marginRight: 6,
     fontSize: 16,
     fontWeight: "700",
     color: "#111827",
   },
+
   phoneInput: {
     flex: 1,
     fontSize: 16,
     color: "#111827",
   },
+
+  // ============================================
+  // OTP
+  // ============================================
+
   otpDescription: {
     color: "#6B7280",
     fontSize: 14,
     marginBottom: 12,
+    lineHeight: 21,
   },
+
   otpInput: {
     flex: 1,
     marginLeft: 10,
@@ -561,15 +1291,136 @@ const styles = StyleSheet.create({
     letterSpacing: 5,
     color: "#111827",
   },
-  changeNumberContainer: {
+
+  // ============================================
+  // BUTTON
+  // ============================================
+
+  loginButton: {
+    marginTop: 25,
+    height: 58,
+    borderRadius: 16,
+    backgroundColor: "#2563EB",
+    justifyContent: "center",
     alignItems: "center",
-    marginTop: 18,
+
+    shadowColor: "#2563EB",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: {
+      width: 0,
+      height: 5,
+    },
+
+    elevation: 6,
   },
-  changeNumber: {
-    color: "#2563EB",
-    fontSize: 14,
+
+  disabledButton: {
+    opacity: 0.6,
+  },
+
+  loginText: {
+    color: "#FFFFFF",
+    fontSize: 18,
     fontWeight: "700",
   },
+
+  // ============================================
+  // GOOGLE
+  // ============================================
+
+  googleButton: {
+    height: 58,
+    width: "100%",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+
+    marginTop: 15,
+
+    elevation: 2,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+  },
+
+  googleText: {
+    marginLeft: 12,
+    color: "#111827",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  // ============================================
+  // DIVIDER
+  // ============================================
+
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 25,
+  },
+
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E5E7EB",
+  },
+
+  dividerText: {
+    marginHorizontal: 12,
+    color: "#9CA3AF",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+
+  // ============================================
+  // FORGOT
+  // ============================================
+
+  forgotContainer: {
+    alignSelf: "flex-end",
+    marginTop: 15,
+  },
+
+  forgotText: {
+    color: "#2563EB",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+
+  // ============================================
+  // SWITCH LOGIN METHOD
+  // ============================================
+
+  switchMethodButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 22,
+  },
+
+  switchMethodText: {
+    marginLeft: 7,
+    color: "#2563EB",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  // ============================================
+  // PHONE ERRORS
+  // ============================================
+
   phoneError: {
     color: "#DC2626",
     fontSize: 13,
@@ -577,25 +1428,52 @@ const styles = StyleSheet.create({
     marginTop: 12,
     lineHeight: 19,
   },
-  backToEmailBtn: {
+
+  // ============================================
+  // RESEND
+  // ============================================
+
+  resendContainer: {
     alignItems: "center",
-    marginTop: 24,
-  },
-  backToEmailText: {
-    color: "#6B7280",
-    fontSize: 15,
-    fontWeight: "600",
+    marginTop: 18,
   },
 
-  // SIGN UP
+  resendText: {
+    color: "#2563EB",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // ============================================
+  // CHANGE NUMBER
+  // ============================================
+
+  changeNumberContainer: {
+    alignItems: "center",
+    marginTop: 18,
+  },
+
+  changeNumber: {
+    color: "#2563EB",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // ============================================
+  // SIGNUP
+  // ============================================
+
   signupContainer: {
     marginTop: 30,
     alignItems: "center",
   },
+
   signupText: {
     fontSize: 16,
     color: "#6B7280",
+    textAlign: "center",
   },
+
   signupLink: {
     color: "#2563EB",
     fontWeight: "700",
