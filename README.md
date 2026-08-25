@@ -1,56 +1,189 @@
-# Welcome to your Expo app 👋
+# 🗺️ SmartVoiceNavigation
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A voice-enabled navigation application built with **React Native, TypeScript, Expo, Google Maps APIs and Firebase**.
 
-## Get started
+SmartVoiceNavigation allows users to interact with navigation features using voice commands, find nearby essential places, calculate routes and get real-time location information.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## ✨ Features
 
-2. Start the app
+* 🎤 **Voice Commands** — Control navigation using voice input
+* 🗺️ **Google Maps Integration** — Interactive maps and navigation
+* 📍 **Nearby Places** — Find hospitals, ATMs, petrol pumps and other locations
+* 🛣️ **Route Calculation** — Calculate routes between locations
+* ⏱️ **Distance & ETA** — Display estimated travel time and distance
+* 📡 **Live GPS Location** — Track the user's current location
+* 🗣️ **Speech Recognition** — Convert voice commands into actions
+* 🔐 **Firebase Authentication** — User authentication and account management
+* 🌐 **Google Places API** — Search for nearby places
+* 🧭 **Google Routes API** — Route and navigation-related functionality
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## 🛠️ Tech Stack
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Frontend / Mobile
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+* React Native
+* TypeScript
+* Expo
 
-## Get a fresh project
+### APIs & Services
 
-When you're ready, run:
+* Google Maps
+* Google Places API
+* Google Routes API
+* Speech Recognition
 
-```bash
-npm run reset-project
+### Backend / Authentication
+
+* Firebase
+
+### Development Tools
+
+* Git
+* GitHub
+* VS Code
+
+---
+
+## 📱 Application Flow
+
+```text
+User
+  ↓
+Voice Command
+  ↓
+Speech Recognition
+  ↓
+Command Processing
+  ↓
+Google Maps / Places / Routes API
+  ↓
+Location / Route / Nearby Places
+  ↓
+Navigation Information
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-### Other setup steps
+## 🚀 Getting Started
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+### 1. Clone the repository
 
-## Learn more
+```bash
+git clone https://github.com/ap7856971-web/SmartVoiceNavigation.git
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+### 2. Open the project
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+cd SmartVoiceNavigation
+```
 
-## Join the community
+### 3. Install dependencies
 
-Join our community of developers creating universal apps.
+```bash
+npm install
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### 4. Start the Expo development server
+
+```bash
+npx expo start
+```
+
+You can then run the application using:
+
+* Android Emulator
+* iOS Simulator
+* Expo Go
+* Development Build
+
+---
+
+## 🔑 Configuration
+
+This project uses external services such as **Google Maps APIs** and **Firebase**.
+
+Before running the application, configure the required API keys and Firebase settings according to your local development environment.
+
+> ⚠️ Never commit private API keys, passwords, Firebase private credentials or other secrets to GitHub.
+
+For local development, use environment variables or the appropriate Expo configuration.
+
+---
+
+## 📂 Project Structure
+
+```text
+SmartVoiceNavigation/
+│
+├── android/              # Android native project files
+│
+├── scripts/              # Development / utility scripts
+│
+├── src/
+│   ├── ai/               # AI-related functionality
+│   ├── app/              # Application routes / screens
+│   ├── assets/
+│   │   └── images/       # Application images and assets
+│   ├── components/       # Reusable UI components
+│   ├── constants/        # Application constants and configuration
+│   ├── hooks/            # Custom React / React Native hooks
+│   ├── screens/          # Application screens
+│   ├── services/         # API and external service logic
+│   ├── global.css        # Global styling
+│   └── global.d.ts       # TypeScript declarations
+│
+├── package.json          # Project dependencies and scripts
+├── tsconfig.json         # TypeScript configuration
+├── app.json              # Expo configuration
+└── README.md             # Project documentation
+```
+
+
+> Update this structure according to the actual folders in the project.
+
+---
+
+## 🎯 Project Goals
+
+The main goals of SmartVoiceNavigation are:
+
+* Make navigation easier through voice interaction
+* Provide quick access to nearby essential places
+* Combine maps, location and voice technologies
+* Build a practical React Native application
+* Improve accessibility and hands-free navigation
+
+---
+
+## 🔮 Future Improvements
+
+* 🤖 AI-based natural language voice commands
+* 🌐 Multi-language voice support
+* 🚦 Real-time traffic information
+* 🔊 Turn-by-turn voice guidance
+* ⭐ Save favourite locations
+* 🕘 Navigation history
+* 📱 Improved accessibility features
+
+---
+
+## 👨‍💻 Author
+
+**Aditya Pal**
+
+B.Tech CSE Student | Aspiring Full Stack Developer
+
+* GitHub: https://github.com/ap7856971-web
+* LinkedIn: https://www.linkedin.com/in/aditya-pal-62b531403
+
+---
+
+## ⭐ Support
+
+If you find this project interesting, consider giving the repository a ⭐ on GitHub.
+
