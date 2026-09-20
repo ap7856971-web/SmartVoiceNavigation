@@ -1,0 +1,74 @@
+{
+  "expo": {
+    "name": "SmartVoiceNavigation",
+    "slug": "smartvoicenavigation",
+    "icon": "./src/assets/images/icon.png",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "smartvoicenavigation",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.adityapal.smartvoicenavigation",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./src/assets/images/icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.adityapal.smartvoicenavigation",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      "expo-sharing",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "App needs access to photos.",
+          "cameraPermission": "App needs access to camera."
+        }
+      ],
+      "expo-audio",
+      "expo-asset",
+      "expo-speech-recognition",
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyB4-BVNHHehSpCge7UZwLShsZVFqcJ2iN4",
+          "iosGoogleMapsApiKey": "AIzaSyDQQYdXgdbPbvs6VTRynDT3Fr0maFfJWHo"
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./src/assets/images/splash.png",
+          "backgroundColor": "#FFFFFF",
+          "imageWidth": 280
+        }
+      ]
+    ],
+    "extra": {
+      "googleMapsRoutesApiKey": "AIzaSyCt-FxXEPDIEmFpwl5x_EiH0KqXGE-fISo",
+      "googlePlacesApiKey": "AIzaSyBhubzjQAfm-oJGmynjlRwYOD5xY99QTH8",
+      "aiApiBaseUrl": "http://10.0.2.2:3000",
+      "geminiModel": "gemini-2.0-flash",
+      "router": {},
+      "eas": {
+        "projectId": "2dab66cb-262c-4195-9508-6fc013fd9998"
+      }
+    }
+  }
+}

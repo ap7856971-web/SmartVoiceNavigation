@@ -30,6 +30,14 @@ import {
 import { router } from "expo-router";
 
 import {
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+
+import { auth, db } from "../../firebase";
+
+import {
   stopNavigation,
 } from "../../services/navigation";
 
@@ -433,6 +441,16 @@ export default function VoiceTab() {
       .trim();
   };
 
+  const getSpeechLanguage = (text: string): string => {
+    // Hindi Devanagari detected -> Hindi voice
+    if (/[\u0900-\u097F]/.test(text)) {
+      return "hi-IN";
+    }
+
+    // English / Hinglish -> Indian English voice
+    return "en-IN";
+  };
+
   /* =========================================================
      START VOICE
   ========================================================= */
@@ -477,7 +495,7 @@ export default function VoiceTab() {
       setStatus("recording");
 
       ExpoSpeechRecognitionModule.start({
-        lang: "en-IN",
+        lang: "hi-IN",
         interimResults: false,
         continuous: false,
       });
@@ -541,12 +559,62 @@ export default function VoiceTab() {
   };
 
   /* =========================================================
+     VOICE COMMAND NORMALIZER
+     ========================================================= */
+
+  const normalizeVoiceCommand = (input: string): string => {
+    let value = input
+      .normalize("NFC")
+      .replace(/[।！？]+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Speech recognition can return English phrases written/pronounced
+    // through Hindi speech. Convert only the command prefix; keep the
+    // destination exactly as spoken.
+    const prefixRules: Array<[RegExp, string]> = [
+      [/^गेट\s+डायरेक्शन\s+टू\s+/i, "navigate to "],
+      [/^गेट\s+डायरेक्शन\s+/i, "navigate to "],
+      [/^डायरेक्शन\s+टू\s+/i, "navigate to "],
+      [/^नेविगेट\s+टू\s+/i, "navigate to "],
+      [/^नेविगेट\s+/i, "navigate to "],
+      [/^जाओ\s+/i, "go to "],
+      [/^जाना\s+है\s+/i, "go to "],
+    ];
+
+    for (const [pattern, replacement] of prefixRules) {
+      if (pattern.test(value)) {
+        value = value.replace(pattern, replacement);
+        break;
+      }
+    }
+
+    return value.trim();
+  };
+
+  /* =========================================================
      LOCAL NAVIGATION COMMAND PARSER
      ========================================================= */
 
   const parseLocalNavigationCommand = (input: string): AIResult => {
-    const original = input.trim();
-    const text = original.toLowerCase();
+    const original = input
+      .normalize("NFC")
+      .trim();
+
+    const normalized = normalizeVoiceCommand(original);
+
+    const text = normalized
+      .toLowerCase()
+      .replace(/[।,!?]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const originalLower = original
+      .toLowerCase()
+      .replace(/[।,!?]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
     const general: AIResult = {
       reply: "",
       intent: "general",
@@ -556,62 +624,438 @@ export default function VoiceTab() {
 
     if (!text) return general;
 
-    if (text.includes("cancel navigation") || text.includes("stop navigation")) {
-      return { ...general, reply: "Navigation cancelled.", intent: "cancel_navigation" };
-    }
+    const cleanDestination = (value: string): string =>
+      value
+        .trim()
+        .replace(/^[\s,.-]+/, "")
+        .replace(/[\s,.!?।]+$/g, "")
+        .trim();
 
-    if (/\b(go|take me|navigate|start).*(home)\b/i.test(text)) {
-      return { ...general, reply: "Opening the route to Home.", intent: "navigate_home" };
-    }
+    const isSpecialDestination = (value: string): boolean =>
+      /^(home|work|office|nearby|near me|nearest|घर|काम|ऑफिस|पास|पास में|नज़दीक|नजदीक|नजदीकी)$/i.test(
+        value.trim()
+      );
 
-    if (/\b(go|take me|navigate|start).*(work)\b/i.test(text)) {
-      return { ...general, reply: "Opening the route to Work.", intent: "navigate_work" };
-    }
+    // =========================================================
+    // STOP / CANCEL NAVIGATION
+    // =========================================================
 
-    const nearby: Array<[string, RegExp]> = [
-      ["hospital", /\b(hospital|hospitals|aspataal)\b.*(near|nearby|nearest|near me|paas|nazdeek|najdik)?|(near|nearby|nearest|near me|paas|nazdeek|najdik).*\b(hospital|hospitals|aspataal)\b/i],
-      ["petrol pump", /\b(petrol pump|petrol|fuel|gas station)\b.*(near|nearby|nearest|near me|paas|nazdeek)?|(near|nearby|nearest|near me|paas|nazdeek|najdik).*\b(petrol pump|petrol|fuel|gas station)\b/i],
-      ["restaurant", /\b(restaurant|restaurants|food)\b.*(near|nearby|nearest|near me|paas|nazdeek)?|(near|nearby|nearest|near me|paas|nazdeek|najdik).*\b(restaurant|restaurants|food)\b/i],
-      ["ATM", /\b(atm|cash machine)\b.*(near|nearby|nearest|near me|paas|nazdeek)?|(near|nearby|nearest|near me|paas|nazdeek|najdik).*\b(atm|cash machine)\b/i],
-      ["police", /\b(police|police station)\b.*(near|nearby|nearest|near me|paas|nazdeek)?|(near|nearby|nearest|near me|paas|nazdeek|najdik).*\b(police|police station)\b/i],
+    const stopNavigationPatterns = [
+      "stop navigation",
+      "cancel navigation",
+      "navigation stop",
+      "navigation band",
+      "navigation bandh",
+      "navigation band karo",
+      "navigation bandh karo",
+      "navigation rok do",
+      "navigation roko",
+      "stop route",
+      "route stop",
+      "रास्ता बंद करो",
+      "रास्ता रोक दो",
+      "नेविगेशन बंद करो",
+      "नेविगेशन बंद कर दो",
+      "नेविगेशन रोक दो",
+      "नेविगेशन रोको",
+      "नेविगेशन बंद",
+      "रूट बंद करो",
     ];
 
-    for (const [category, regex] of nearby) {
-      if (regex.test(text)) {
-        const spoken = category === "petrol pump" ? "petrol pump" : category.toLowerCase();
-        return { ...general, reply: `Finding the nearest ${spoken}.`, intent: "nearby_search", category };
+    if (
+      stopNavigationPatterns.some(
+        (phrase) =>
+          originalLower.includes(phrase) ||
+          text.includes(phrase)
+      )
+    ) {
+      return {
+        ...general,
+        reply: "Navigation cancelled.",
+        intent: "cancel_navigation",
+      };
+    }
+
+    // =========================================================
+    // HOME
+    // =========================================================
+
+    const homePatterns = [
+      /\b(go|take me|navigate|start|drive|route)\s+(to\s+)?home\b/i,
+      /\b(home)\s+(go|chalo|jao|jana|le chalo|le jao)\b/i,
+      /घर चलो/i,
+      /घर जाओ/i,
+      /घर जाना है/i,
+      /मुझे घर ले चलो/i,
+      /मुझे घर ले जाओ/i,
+      /घर ले चलो/i,
+      /घर ले जाओ/i,
+      /ghar chalo/i,
+      /ghar jao/i,
+      /ghar jana hai/i,
+      /mujhe ghar le chalo/i,
+      /mujhe ghar le jao/i,
+    ];
+
+    if (homePatterns.some((pattern) => pattern.test(original))) {
+      return {
+        ...general,
+        reply: "Opening the route to Home.",
+        intent: "navigate_home",
+      };
+    }
+
+    // =========================================================
+    // WORK / OFFICE
+    // =========================================================
+
+    const workPatterns = [
+      /\b(go|take me|navigate|start|drive|route)\s+(to\s+)?(work|office)\b/i,
+      /\b(work|office)\s+(go|chalo|jao|jana|le chalo|le jao)\b/i,
+      /काम पर चलो/i,
+      /काम पर जाओ/i,
+      /काम पर जाना है/i,
+      /ऑफिस चलो/i,
+      /ऑफिस जाओ/i,
+      /ऑफिस जाना है/i,
+      /मुझे ऑफिस ले चलो/i,
+      /मुझे ऑफिस ले जाओ/i,
+      /kaam par chalo/i,
+      /kaam par jao/i,
+      /kaam par jana hai/i,
+      /office chalo/i,
+      /office jao/i,
+      /office jana hai/i,
+      /mujhe office le chalo/i,
+      /mujhe office le jao/i,
+    ];
+
+    if (workPatterns.some((pattern) => pattern.test(original))) {
+      return {
+        ...general,
+        reply: "Opening the route to Work.",
+        intent: "navigate_work",
+      };
+    }
+
+    // =========================================================
+    // NEARBY SEARCH
+    // =========================================================
+
+    const nearby: Array<[string, RegExp[]]> = [
+      [
+        "hospital",
+        [
+          /\b(hospital|hospitals|aspataal|aspatal)\b/i,
+          /अस्पताल/i,
+          /हॉस्पिटल/i,
+        ],
+      ],
+      [
+        "petrol pump",
+        [
+          /\b(petrol pump|petrol|fuel|gas station)\b/i,
+          /पेट्रोल पंप/i,
+          /पेट्रोल पम्प/i,
+          /पेट्रोल/i,
+        ],
+      ],
+      [
+        "restaurant",
+        [
+          /\b(restaurant|restaurants|food|eatery)\b/i,
+          /रेस्टोरेंट/i,
+          /रेस्तरां/i,
+          /खाना/i,
+        ],
+      ],
+      [
+        "ATM",
+        [
+          /\b(atm|cash machine)\b/i,
+          /एटीएम/i,
+          /कैश मशीन/i,
+        ],
+      ],
+      [
+        "police",
+        [
+          /\b(police|police station)\b/i,
+          /पुलिस/i,
+          /थाना/i,
+          /पुलिस स्टेशन/i,
+        ],
+      ],
+    ];
+
+    const nearbyWords = [
+      "near",
+      "nearby",
+      "nearest",
+      "near me",
+      "close to me",
+      "closest",
+      "paas",
+      "paas mein",
+      "paas ka",
+      "paas ki",
+      "nazdeek",
+      "najdik",
+      "najdeek",
+      "sabse paas",
+      "sabse nazdeek",
+      "find",
+      "search",
+      "dhundo",
+      "dhundho",
+      "dhoondo",
+      "ढूंढो",
+      "ढूँढो",
+      "ढूंढना",
+      "खोजो",
+      "खोजिए",
+      "पास",
+      "पास में",
+      "पास का",
+      "पास की",
+      "नज़दीक",
+      "नजदीक",
+      "नजदीकी",
+      "निकटतम",
+      "करीब",
+      "सबसे पास",
+      "सबसे नज़दीक",
+    ];
+
+    for (const [category, patterns] of nearby) {
+      const hasCategory = patterns.some(
+        (pattern) => pattern.test(original) || pattern.test(normalized)
+      );
+
+      const hasNearbyWord = nearbyWords.some(
+        (word) =>
+          originalLower.includes(word.toLowerCase()) ||
+          text.includes(word.toLowerCase())
+      );
+
+      if (hasCategory && hasNearbyWord) {
+        const spoken =
+          category === "petrol pump"
+            ? "petrol pump"
+            : category.toLowerCase();
+
+        return {
+          ...general,
+          reply: `Finding the nearest ${spoken}.`,
+          intent: "nearby_search",
+          category,
+        };
       }
     }
 
-    // Direct navigation phrases such as:
-    // "start navigation to Panipat"
-    // "navigation to Delhi"
-    // "navigate to India Gate"
-    // "go to Meerut"
-    // "take me to Panipat"
-    const match =
+    // =========================================================
+    // TRAFFIC / WEATHER / MUSIC / CALL / EMERGENCY
+    // =========================================================
+
+    if (
+      /\\btraffic\\b/i.test(text) ||
+      /ट्रैफिक|यातायात/i.test(original) ||
+      /traffic.*batao|traffic.*kaisa/i.test(text)
+    ) {
+      return {
+        ...general,
+        reply:
+          "Live traffic information needs a traffic data service.",
+        intent: "traffic",
+      };
+    }
+
+    if (
+      /\\bweather\\b/i.test(text) ||
+      /मौसम/i.test(original) ||
+      /mausam/i.test(text)
+    ) {
+      return {
+        ...general,
+        reply:
+          "Live weather information needs a weather service.",
+        intent: "weather",
+      };
+    }
+
+    if (
+      /play music|music chalao|gaana chalao/i.test(text) ||
+      /गाना चलाओ|म्यूजिक चलाओ/i.test(original)
+    ) {
+      return {
+        ...general,
+        reply: "Opening music controls.",
+        intent: "music",
+      };
+    }
+
+    if (
+      /emergency|sos/i.test(text) ||
+      /आपातकाल|मदद चाहिए/i.test(original)
+    ) {
+      return {
+        ...general,
+        reply:
+          "Emergency mode requested. Please confirm before contacting your emergency contact.",
+        intent: "emergency",
+      };
+    }
+
+    const callMatch =
+      text.match(/^(?:call|phone|dial)\\s+(.+)$/i) ||
       original.match(
-        /^(?:please\s+)?(?:start\s+navigation|navigation|navigate|go|take me|drive|route|start)\s+(?:to\s+)?(.+)$/i
+        /^(?:mujhe|mujhko)\\s+(.+?)\\s+ko\\s+call\\s+karna\\s+hai$/i
+      );
+
+    if (callMatch?.[1]) {
+      return {
+        ...general,
+        reply: `Preparing a call to ${callMatch[1].trim()}.`,
+        intent: "call",
+        destination: callMatch[1].trim(),
+      };
+    }
+
+    // =========================================================
+    // DIRECT NAVIGATION
+    // =========================================================
+    // Handles:
+    // navigate to Delhi
+    // नेविगेट टू अशोक नगर
+    // गेट डायरेक्शन टू न्यू सनराइज नर्सिंग होम
+    // get directions to Delhi
+    // directions to Delhi
+    // route to Delhi
+
+    const directNavigationPatterns = [
+      /^(?:please\s+)?(?:start\s+)?(?:navigation|navigate|go|take me|drive|route)\s+(?:to\s+)?(.+)$/i,
+      /^(?:please\s+)?get\s+(?:the\s+)?directions?\s+to\s+(.+)$/i,
+      /^(?:please\s+)?give\s+(?:me\s+)?directions?\s+to\s+(.+)$/i,
+      /^(?:please\s+)?directions?\s+to\s+(.+)$/i,
+      /^(?:please\s+)?navigate\s+to\s+(.+)$/i,
+      /^गेट\s+डायरेक्शन\s+टू\s+(.+)$/i,
+      /^गेट\s+डायरेक्शन\s+(.+)$/i,
+      /^डायरेक्शन\s+टू\s+(.+)$/i,
+      /^नेविगेट\s+टू\s+(.+)$/i,
+      /^नेविगेट\s+(.+)$/i,
+      /^दिशा\s+बताओ\s+(.+)$/i,
+      /^रास्ता\s+बताओ\s+(.+)$/i,
+    ];
+
+    for (const pattern of directNavigationPatterns) {
+      const match = text.match(pattern);
+      if (!match?.[1]) continue;
+
+      const destination = cleanDestination(match[1]);
+
+      if (destination && !isSpecialDestination(destination)) {
+        const isHindi =
+          /[\u0900-\u097F]/.test(destination);
+
+        return {
+          ...general,
+          reply: isHindi
+            ? `${destination} के लिए रास्ता खोल रहा हूँ।`
+            : `Opening the route to ${destination}.`,
+          intent: "navigate",
+          destination,
+        };
+      }
+    }
+
+    // =========================================================
+    // HINGLISH NAVIGATION
+    // =========================================================
+    // mujhe Delhi le chalo
+    // Delhi chalo
+    // Delhi jao
+    // Delhi jana hai
+    // mujhe Delhi jana hai
+
+    let match =
+      original.match(
+        /^(?:mujhe|mujhko)\s+(.+?)\s+(?:le chalo|le jao|le jaana|le jana)$/i
       ) ||
       original.match(
-        /^(?:mujhe|mujhko)\s+(.+?)\s+(?:le chalo|le jao|jana hai)$/i
+        /^(.+?)\s+(?:chalo|jao|jana hai|jaana hai|le chalo|le jao)$/i
+      ) ||
+      original.match(
+        /^(?:mujhe|mujhko)\s+(.+?)\s+(?:jana hai|jaana hai)$/i
       );
 
     if (match?.[1]) {
-      const destination = match[1]
-        .trim()
-        .replace(/[.!?]+$/, "");
+      const destination = cleanDestination(match[1]);
 
       if (
         destination &&
-        !/^(home|work|nearby|near me|nearest)$/i.test(
-          destination
-        )
+        !isSpecialDestination(destination)
       ) {
         return {
           ...general,
-          reply:
-            `Opening the route to ${destination}.`,
+          reply: `Opening the route to ${destination}.`,
+          intent: "navigate",
+          destination,
+        };
+      }
+    }
+
+    // =========================================================
+    // HINDI SCRIPT NAVIGATION
+    // =========================================================
+    // मुझे दिल्ली ले चलो
+    // दिल्ली चलो
+    // दिल्ली जाओ
+    // दिल्ली जाना है
+    // मुझे दिल्ली जाना है
+
+    match =
+      original.match(
+        /^(?:मुझे|मुझको)\s+(.+?)\s+(?:ले चलो|ले जाओ|ले जाना)$/i
+      ) ||
+      original.match(
+        /^(.+?)\s+(?:चलो|जाओ|जाना है|ले चलो|ले जाओ)$/i
+      ) ||
+      original.match(
+        /^(?:मुझे|मुझको)\s+(.+?)\s+(?:जाना है)$/i
+      );
+
+    if (match?.[1]) {
+      const destination = cleanDestination(match[1]);
+
+      if (
+        destination &&
+        !isSpecialDestination(destination)
+      ) {
+        return {
+          ...general,
+          reply: `${destination} के लिए रास्ता खोल रहा हूँ।`,
+          intent: "navigate",
+          destination,
+        };
+      }
+    }
+
+    // =========================================================
+    // FALLBACK: "I WANT TO GO TO..."
+    // =========================================================
+
+    match =
+      original.match(
+        /^(?:i want to go to|i want to visit|i need to go to|take me to)\s+(.+)$/i
+      );
+
+    if (match?.[1]) {
+      const destination = cleanDestination(match[1]);
+
+      if (destination && !isSpecialDestination(destination)) {
+        return {
+          ...general,
+          reply: `Opening the route to ${destination}.`,
           intent: "navigate",
           destination,
         };
@@ -619,6 +1063,69 @@ export default function VoiceTab() {
     }
 
     return general;
+  };
+
+  /* =========================================================
+     FIREBASE VOICE HISTORY
+  ========================================================= */
+
+  const saveVoiceHistory = async (
+    question: string,
+    answer: string,
+    commandIntent?: string,
+    destination?: string,
+    category?: string
+  ) => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      return;
+    }
+
+    try {
+      await addDoc(
+        collection(
+          db,
+          "users",
+          currentUser.uid,
+          "history"
+        ),
+        {
+          title:
+            destination ||
+            category ||
+            question,
+          subtitle:
+            commandIntent === "navigate"
+              ? "Voice navigation"
+              : commandIntent === "nearby_search"
+                ? "Nearby search"
+                : "Voice command",
+          destination:
+            destination || "",
+          category:
+            category || "",
+          type:
+            commandIntent === "navigate" ||
+            commandIntent === "navigate_home" ||
+            commandIntent === "navigate_work"
+              ? "route"
+              : "search",
+          question,
+          answer,
+          intent:
+            commandIntent || "general",
+          createdAt:
+            serverTimestamp(),
+        }
+      );
+    } catch (error) {
+      // History must never break the voice command.
+      console.warn(
+        "[VoiceTab] Firebase history save failed:",
+        error
+      );
+    }
   };
 
   const processAI = async (
@@ -635,7 +1142,18 @@ export default function VoiceTab() {
 
       setTranscript(text);
 
-      const localResult = parseLocalNavigationCommand(text);
+      const normalizedText = normalizeVoiceCommand(text);
+
+      console.log("[VoiceTab] Original command:", text);
+      console.log("[VoiceTab] Normalized command:", normalizedText);
+
+      // Try deterministic local parsing first. This prevents simple
+      // navigation commands from depending on the AI/network.
+      let localResult = parseLocalNavigationCommand(text);
+
+      if (localResult.intent === "general" && normalizedText !== text) {
+        localResult = parseLocalNavigationCommand(normalizedText);
+      }
 
       if (localResult.intent !== "general") {
         console.log("[VoiceTab] Local navigation result:", localResult);
@@ -645,7 +1163,7 @@ export default function VoiceTab() {
         setStatus("speaking");
 
         Speech.speak(cleanTextForSpeech(localResult.reply), {
-          language: "en-US",
+          language: getSpeechLanguage(localResult.reply),
           rate: 0.95,
           onDone: () => setStatus("idle"),
           onStopped: () => setStatus("idle"),
@@ -666,6 +1184,15 @@ export default function VoiceTab() {
             break;
           case "cancel_navigation":
             await stopNavigation();
+            break;
+
+          case "traffic":
+          case "weather":
+          case "music":
+          case "call":
+          case "emergency":
+            // These intents are intentionally surfaced to the user.
+            // Connect the corresponding service/action here.
             break;
         }
 
@@ -779,7 +1306,7 @@ export default function VoiceTab() {
         Speech.speak(
           spokenText,
           {
-            language: "en-US",
+            language: getSpeechLanguage(spokenText),
             pitch: 1,
             rate: 0.95,
 
@@ -842,6 +1369,14 @@ export default function VoiceTab() {
           await stopNavigation();
           break;
 
+        case "traffic":
+        case "weather":
+        case "music":
+        case "call":
+        case "emergency":
+          // Service/action integration can be attached here.
+          break;
+
         default:
           break;
       }
@@ -858,23 +1393,22 @@ export default function VoiceTab() {
          History
       ----------------------------------------------------- */
 
-      setHistory(
-        (previous) => [
-          {
-            id:
-              Date.now().toString(),
+      setHistory((previous) => [
+        {
+          id: Date.now().toString(),
+          question: text,
+          answer: result.reply,
+          intent: result.intent,
+        },
+        ...previous,
+      ]);
 
-            question: text,
-
-            answer:
-              result.reply,
-
-            intent:
-              result.intent,
-          },
-
-          ...previous,
-        ]
+      await saveVoiceHistory(
+        text,
+        result.reply,
+        result.intent,
+        result.destination,
+        result.category
       );
     } catch (error) {
       console.error(
@@ -1073,9 +1607,9 @@ export default function VoiceTab() {
                   : startVoice
               }
               disabled={
-                isBusy &&
-                !isRecording &&
-                !isSpeaking
+                status === "thinking" ||
+                status === "transcribing" ||
+                status === "uploading"
               }
               style={
                 styles.orbButton

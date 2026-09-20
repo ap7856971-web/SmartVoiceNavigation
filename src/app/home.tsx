@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+
 import {
     View,
     Text,
@@ -9,48 +10,101 @@ import {
     ActivityIndicator,
     Alert,
 } from "react-native";
+
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
+import { useTheme } from "../context/ThemeContext";
+
+import {
+    doc,
+    getDoc,
+    setDoc,
+    serverTimestamp,
+} from "firebase/firestore";
+
+import { auth, db } from "../firebase";
+
+// ==================================================
+// STORAGE
+// ==================================================
 
 const HOME_STORAGE_KEY =
     "smartVoiceNavigation_homeDetails";
 
+const HOME_WORK_CACHE_KEY =
+    "smartVoiceNavigation_homeWorkCache";
+
+// ==================================================
+// TYPE
+// ==================================================
+
+type HomeDetails = {
+    houseNumber: string;
+    street: string;
+    area: string;
+    city: string;
+    state: string;
+    country: string;
+    pincode: string;
+    landmark: string;
+};
+
+// ==================================================
+// EMPTY HOME
+// ==================================================
+
+const EMPTY_HOME: HomeDetails = {
+    houseNumber: "",
+    street: "",
+    area: "",
+    city: "",
+    state: "",
+    country: "",
+    pincode: "",
+    landmark: "",
+};
+
+// ==================================================
+// HOME / WORK SCREEN
+// ==================================================
+
 export default function HomeWorkScreen() {
+    const { colors, isDark } = useTheme();
+    const styles = createStyles(colors, isDark);
     const [loadingLocation, setLoadingLocation] =
         useState(false);
-
     const [saving, setSaving] = useState(false);
 
-    const [homeDetails, setHomeDetails] = useState({
-        houseNumber: "",
-        street: "",
-        area: "",
-        city: "",
-        state: "",
-        country: "",
-        pincode: "",
-        landmark: "",
-    });
+    const [user, setUser] = useState<any>(null);
 
-    /* =====================================================
-       LOAD SAVED HOME DETAILS
-    ===================================================== */
+    const [homeDetails, setHomeDetails] =
+        useState<HomeDetails>(EMPTY_HOME);
+
+    // ==================================================
+    // AUTH + LOAD
+    // ==================================================
+
+    const firebaseLoadStarted = useRef(false);
 
     useEffect(() => {
-        loadHomeDetails();
-    }, []);
+        let mounted = true;
 
-    const loadHomeDetails = async () => {
-        try {
-            const saved =
-                await AsyncStorage.getItem(
-                    HOME_STORAGE_KEY
-                );
+        // ULTRA FAST: render the screen immediately.
+        // AsyncStorage hydrates the fields in the background.
+        const loadLocalHome = async () => {
+            try {
+                const saved =
+                    await AsyncStorage.getItem(
+                        HOME_STORAGE_KEY
+                    );
 
-            if (saved) {
+                if (!mounted || !saved) {
+                    return;
+                }
+
                 const data = JSON.parse(saved);
 
                 setHomeDetails({
@@ -63,21 +117,186 @@ export default function HomeWorkScreen() {
                     pincode: data.pincode || "",
                     landmark: data.landmark || "",
                 });
+            } catch (error) {
+                console.error(
+                    "[Home] Local background load error:",
+                    error
+                );
+            }
+        };
+
+        // Never wait for storage before first paint.
+        void loadLocalHome();
+
+        const unsubscribe =
+            auth.onAuthStateChanged((currentUser) => {
+                if (!mounted) {
+                    return;
+                }
+
+                setUser(currentUser);
+
+                if (!currentUser) {
+                    return;
+                }
+
+                // Avoid duplicate Firebase reads during auth re-renders.
+                if (firebaseLoadStarted.current) {
+                    return;
+                }
+
+                firebaseLoadStarted.current = true;
+
+                // Firebase sync happens in the background.
+                void loadHomeDetails(currentUser.uid);
+            });
+
+        return () => {
+            mounted = false;
+            unsubscribe();
+        };
+    }, []);
+
+    // ==================================================
+    // LOAD HOME DETAILS
+    // ==================================================
+
+    const loadHomeDetails = async (
+        uid: string
+    ) => {
+        try {
+            const userRef = doc(
+                db,
+                "users",
+                uid
+            );
+
+            const snapshot =
+                await getDoc(userRef);
+
+            if (!snapshot.exists()) {
+                return;
+            }
+
+            const data = snapshot.data();
+
+            let firebaseHome: HomeDetails;
+
+            if (
+                data.homeDetails &&
+                typeof data.homeDetails ===
+                    "object"
+            ) {
+                const savedHome =
+                    data.homeDetails;
+
+                firebaseHome = {
+                    houseNumber:
+                        savedHome.houseNumber || "",
+                    street:
+                        savedHome.street || "",
+                    area:
+                        savedHome.area || "",
+                    city:
+                        savedHome.city || "",
+                    state:
+                        savedHome.state || "",
+                    country:
+                        savedHome.country || "",
+                    pincode:
+                        savedHome.pincode || "",
+                    landmark:
+                        savedHome.landmark || "",
+                };
+            } else {
+                // Support existing/simple home fields.
+                firebaseHome = {
+                    ...EMPTY_HOME,
+                    houseNumber:
+                        data.homeHouseNumber || "",
+                    street:
+                        data.homeStreet || "",
+                    area:
+                        data.homeArea || "",
+                    city:
+                        data.homeCity || "",
+                    state:
+                        data.homeState || "",
+                    country:
+                        data.homeCountry || "",
+                    pincode:
+                        data.homePincode || "",
+                    landmark:
+                        data.homeLandmark || "",
+                };
+            }
+
+            const hasFirebaseData =
+                Object.values(
+                    firebaseHome
+                ).some(
+                    (value) =>
+                        value.trim().length > 0
+                );
+
+            if (!hasFirebaseData) {
+                return;
+            }
+
+            // Firebase is only a background source of truth.
+            // The UI was already rendered from AsyncStorage.
+            setHomeDetails(firebaseHome);
+
+            // Refresh local cache so the next open is instant.
+            await AsyncStorage.setItem(
+                HOME_STORAGE_KEY,
+                JSON.stringify(firebaseHome)
+            );
+
+            // Keep the Home card on the Map screen in sync.
+            const homeAddress =
+                buildHomeAddress(firebaseHome);
+
+            try {
+                const existingCache =
+                    await AsyncStorage.getItem(
+                        HOME_WORK_CACHE_KEY
+                    );
+
+                const cache =
+                    existingCache
+                        ? JSON.parse(existingCache)
+                        : {};
+
+                await AsyncStorage.setItem(
+                    HOME_WORK_CACHE_KEY,
+                    JSON.stringify({
+                        ...cache,
+                        homeAddress,
+                        homeDetails: firebaseHome,
+                    })
+                );
+            } catch (cacheError) {
+                console.error(
+                    "[Home] Shared cache update error:",
+                    cacheError
+                );
             }
         } catch (error) {
+            // Do not block or disturb the already visible local UI.
             console.error(
-                "[Home] Load error:",
+                "[Home] Firebase background load error:",
                 error
             );
         }
     };
 
-    /* =====================================================
-       UPDATE FIELD
-    ===================================================== */
+    // ==================================================
+    // UPDATE FIELD
+    // ==================================================
 
     const updateField = (
-        field: keyof typeof homeDetails,
+        field: keyof HomeDetails,
         value: string
     ) => {
         setHomeDetails((previous) => ({
@@ -86,9 +305,31 @@ export default function HomeWorkScreen() {
         }));
     };
 
-    /* =====================================================
-       USE CURRENT LOCATION
-    ===================================================== */
+    // ==================================================
+    // BUILD ADDRESS
+    // ==================================================
+
+    const buildHomeAddress = (
+        details: HomeDetails
+    ) => {
+        return [
+            details.houseNumber,
+            details.street,
+            details.area,
+            details.city,
+            details.state,
+            details.country,
+            details.pincode,
+            details.landmark,
+        ]
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .join(", ");
+    };
+
+    // ==================================================
+    // CURRENT LOCATION
+    // ==================================================
 
     const useCurrentLocation = async () => {
         try {
@@ -108,7 +349,8 @@ export default function HomeWorkScreen() {
 
             const location =
                 await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.High,
+                    accuracy:
+                        Location.Accuracy.High,
                 });
 
             const {
@@ -137,19 +379,16 @@ export default function HomeWorkScreen() {
                 return;
             }
 
-            const address = addresses[0];
-
-            /*
-             * Reverse geocoding fields can vary by device/provider.
-             * We intentionally avoid putting address.name first
-             * because it may contain a house/plot number.
-             */
+            const address =
+                addresses[0];
 
             const houseNumber =
-                address.streetNumber || "";
+                address.streetNumber ||
+                "";
 
             const street =
-                address.street || "";
+                address.street ||
+                "";
 
             const area =
                 address.district ||
@@ -167,37 +406,51 @@ export default function HomeWorkScreen() {
                 address.region || "";
 
             const country =
-                address.country || "India";
+                address.country ||
+                "India";
 
             const pincode =
-                address.postalCode || "";
+                address.postalCode ||
+                "";
 
-            setHomeDetails((previous) => ({
-                ...previous,
+            setHomeDetails(
+                (previous) => ({
+                    ...previous,
 
-                houseNumber:
-                    houseNumber || previous.houseNumber,
+                    houseNumber:
+                        houseNumber ||
+                        previous.houseNumber,
 
-                street:
-                    street || previous.street,
+                    street:
+                        street ||
+                        previous.street,
 
-                area:
-                    area || previous.area,
+                    area:
+                        area ||
+                        previous.area,
 
-                city:
-                    city || previous.city,
+                    city:
+                        city ||
+                        previous.city,
 
-                state:
-                    state || previous.state,
+                    state:
+                        state ||
+                        previous.state,
 
-                country:
-                    country || previous.country,
+                    country:
+                        country ||
+                        previous.country,
 
-                pincode:
-                    pincode || previous.pincode,
-            }));
+                    pincode:
+                        pincode ||
+                        previous.pincode,
+                })
+            );
 
-
+            Alert.alert(
+                "Location Added",
+                "Your current location has been added to Home details."
+            );
         } catch (error) {
             console.error(
                 "[Home] Current location error:",
@@ -213,16 +466,19 @@ export default function HomeWorkScreen() {
         }
     };
 
-    /* =====================================================
-       SAVE HOME
-    ===================================================== */
+    // ==================================================
+    // SAVE HOME
+    // ==================================================
 
     const saveHome = async () => {
         try {
-            if (
-                !homeDetails.area &&
-                !homeDetails.city
-            ) {
+            const hasAddress =
+                homeDetails.houseNumber.trim() ||
+                homeDetails.street.trim() ||
+                homeDetails.area.trim() ||
+                homeDetails.city.trim();
+
+            if (!hasAddress) {
                 Alert.alert(
                     "Address Required",
                     "Please add your current location or enter your home address."
@@ -231,12 +487,149 @@ export default function HomeWorkScreen() {
                 return false;
             }
 
+            if (
+                homeDetails.pincode.trim() &&
+                !/^\\d{6}$/.test(
+                    homeDetails.pincode.trim()
+                )
+            ) {
+                Alert.alert(
+                    "Invalid Pincode",
+                    "Please enter a valid 6-digit pincode."
+                );
+
+                return false;
+            }
+
             setSaving(true);
+
+            const cleanHome: HomeDetails = {
+                houseNumber:
+                    homeDetails.houseNumber.trim(),
+
+                street:
+                    homeDetails.street.trim(),
+
+                area:
+                    homeDetails.area.trim(),
+
+                city:
+                    homeDetails.city.trim(),
+
+                state:
+                    homeDetails.state.trim(),
+
+                country:
+                    homeDetails.country.trim(),
+
+                pincode:
+                    homeDetails.pincode.trim(),
+
+                landmark:
+                    homeDetails.landmark.trim(),
+            };
+
+            const homeAddress =
+                buildHomeAddress(cleanHome);
+
+            // ------------------------------------------
+            // LOCAL SAVE FIRST
+            // ------------------------------------------
 
             await AsyncStorage.setItem(
                 HOME_STORAGE_KEY,
-                JSON.stringify(homeDetails)
+                JSON.stringify(cleanHome)
             );
+
+            // Keep Map Home card instantly updated.
+            try {
+                const existingCache =
+                    await AsyncStorage.getItem(
+                        HOME_WORK_CACHE_KEY
+                    );
+
+                const cache =
+                    existingCache
+                        ? JSON.parse(existingCache)
+                        : {};
+
+                await AsyncStorage.setItem(
+                    HOME_WORK_CACHE_KEY,
+                    JSON.stringify({
+                        ...cache,
+                        homeAddress,
+                        homeDetails: cleanHome,
+                    })
+                );
+            } catch (cacheError) {
+                console.error(
+                    "[Home] Shared cache save error:",
+                    cacheError
+                );
+            }
+
+            setHomeDetails(cleanHome);
+
+            // ------------------------------------------
+            // DO NOT WAIT FOR FIREBASE
+            // ------------------------------------------
+
+            setSaving(false);
+
+            if (user) {
+                void setDoc(
+                    doc(
+                        db,
+                        "users",
+                        user.uid
+                    ),
+                    {
+                        homeDetails: cleanHome,
+                        homeAddress,
+
+                        homeHouseNumber:
+                            cleanHome.houseNumber,
+
+                        homeStreet:
+                            cleanHome.street,
+
+                        homeArea:
+                            cleanHome.area,
+
+                        homeCity:
+                            cleanHome.city,
+
+                        homeState:
+                            cleanHome.state,
+
+                        homeCountry:
+                            cleanHome.country,
+
+                        homePincode:
+                            cleanHome.pincode,
+
+                        homeLandmark:
+                            cleanHome.landmark,
+
+                        updatedAt:
+                            serverTimestamp(),
+                    },
+                    {
+                        merge: true,
+                    }
+                )
+                    .then(() => {
+                        console.log(
+                            "[Home] Firebase background save successful"
+                        );
+                    })
+                    .catch((firebaseError) => {
+                        console.error(
+                            "[Home] Firebase background save error:",
+                            firebaseError
+                        );
+                    });
+            }
 
             return true;
         } catch (error) {
@@ -245,77 +638,124 @@ export default function HomeWorkScreen() {
                 error
             );
 
+            setSaving(false);
+
             Alert.alert(
                 "Error",
                 "Unable to save Home details."
             );
 
             return false;
-        } finally {
-            setSaving(false);
         }
     };
 
+    // ==================================================
+    // HANDLE SAVE
+    // ==================================================
+
+    const handleSave = async () => {
+        const saved =
+            await saveHome();
+
+        if (saved) {
+            router.replace(
+                "/(tabs)/"
+            );
+        }
+    };
+
+    // ==================================================
+    // SCREEN
+    // ==================================================
+
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView
+            style={styles.container}
+        >
             <ScrollView
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={
+                    false
+                }
                 contentContainerStyle={
                     styles.scrollContent
                 }
+                keyboardShouldPersistTaps="handled"
             >
-                {/* =================================================
-            HEADER
-        ================================================= */}
+                {/* HEADER */}
 
-                <View style={styles.header}>
+                <View
+                    style={styles.header}
+                >
                     <View>
-                        <Text style={styles.title}>
+                        <Text
+                            style={
+                                styles.title
+                            }
+                        >
                             Your Home
                         </Text>
 
-                        <Text style={styles.subtitle}>
+                        <Text
+                            style={
+                                styles.subtitle
+                            }
+                        >
                             Add your complete home details
                         </Text>
                     </View>
 
-                    <View style={styles.homeIcon}>
+                    <View
+                        style={
+                            styles.homeIcon
+                        }
+                    >
                         <Ionicons
                             name="home"
                             size={26}
-                            color="#4F46E5"
+                            color={colors.primary}
                         />
                     </View>
                 </View>
 
-                {/* =================================================
-            CURRENT LOCATION BUTTON
-        ================================================= */}
+                {/* CURRENT LOCATION */}
 
                 <TouchableOpacity
-                    style={styles.currentLocationButton}
+                    style={
+                        styles.currentLocationButton
+                    }
                     activeOpacity={0.85}
-                    onPress={useCurrentLocation}
-                    disabled={loadingLocation}
+                    onPress={
+                        useCurrentLocation
+                    }
+                    disabled={
+                        loadingLocation ||
+                        saving
+                    }
                 >
                     <View
-                        style={styles.currentLocationIcon}
+                        style={
+                            styles.currentLocationIcon
+                        }
                     >
                         {loadingLocation ? (
                             <ActivityIndicator
                                 size="small"
-                                color="#2563EB"
+                                color={colors.primary}
                             />
                         ) : (
                             <Ionicons
                                 name="locate"
                                 size={24}
-                                color="#2563EB"
+                                color={colors.primary}
                             />
                         )}
                     </View>
 
-                    <View style={styles.locationButtonText}>
+                    <View
+                        style={
+                            styles.locationButtonText
+                        }
+                    >
                         <Text
                             style={
                                 styles.currentLocationTitle
@@ -338,232 +778,152 @@ export default function HomeWorkScreen() {
                     <Ionicons
                         name="chevron-forward"
                         size={20}
-                        color="#2563EB"
+                        color={colors.primary}
                     />
                 </TouchableOpacity>
 
-                {/* =================================================
-            HOME ADDRESS SECTION
-        ================================================= */}
+                {/* HOME ADDRESS */}
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>
+                <View
+                    style={styles.section}
+                >
+                    <Text
+                        style={
+                            styles.sectionTitle
+                        }
+                    >
                         Home Address
                     </Text>
 
-                    {/* House Number */}
+                    <InputField
+                        label="House / Flat Number"
+                        icon="home-outline"
+                        placeholder="e.g. 111/26"
+                        value={
+                            homeDetails.houseNumber
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "houseNumber",
+                                value
+                            )
+                        }
+                        editable={!saving}
+                    />
 
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            House / Flat Number
-                        </Text>
+                    <InputField
+                        label="Street / Road"
+                        icon="navigate-outline"
+                        placeholder="Enter street or road"
+                        value={
+                            homeDetails.street
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "street",
+                                value
+                            )
+                        }
+                        editable={!saving}
+                    />
 
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="home-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
+                    <InputField
+                        label="Area / Colony *"
+                        icon="location-outline"
+                        placeholder="Enter colony / area"
+                        value={
+                            homeDetails.area
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "area",
+                                value
+                            )
+                        }
+                        editable={!saving}
+                    />
 
-                            <TextInput
-                                style={styles.input}
-                                placeholder="e.g. 111/26"
-                                placeholderTextColor="#9CA3AF"
-                                value={
-                                    homeDetails.houseNumber
-                                }
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "houseNumber",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
+                    <InputField
+                        label="City *"
+                        icon="business-outline"
+                        placeholder="Enter city"
+                        value={
+                            homeDetails.city
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "city",
+                                value
+                            )
+                        }
+                        editable={!saving}
+                    />
 
-                    {/* Street */}
+                    <InputField
+                        label="State *"
+                        icon="map-outline"
+                        placeholder="Enter state"
+                        value={
+                            homeDetails.state
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "state",
+                                value
+                            )
+                        }
+                        editable={!saving}
+                    />
 
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            Street / Road
-                        </Text>
+                    <InputField
+                        label="Country *"
+                        icon="globe-outline"
+                        placeholder="Enter country"
+                        value={
+                            homeDetails.country
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "country",
+                                value
+                            )
+                        }
+                        editable={!saving}
+                    />
 
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="navigate-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
+                    <InputField
+                        label="Pincode"
+                        icon="mail-outline"
+                        placeholder="Enter pincode"
+                        value={
+                            homeDetails.pincode
+                        }
+                        onChangeText={(value) =>
+                            updateField(
+                                "pincode",
+                                value.replace(
+                                    /\D/g,
+                                    ""
+                                )
+                            )
+                        }
+                        keyboardType="numeric"
+                        maxLength={6}
+                        editable={!saving}
+                    />
 
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Enter street or road"
-                                placeholderTextColor="#9CA3AF"
-                                value={homeDetails.street}
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "street",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
+                    {/* LANDMARK */}
 
-                    {/* Area */}
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            Area / Colony *
-                        </Text>
-
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="location-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
-
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Enter colony / area"
-                                placeholderTextColor="#9CA3AF"
-                                value={homeDetails.area}
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "area",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
-
-                    {/* City */}
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            City *
-                        </Text>
-
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="business-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
-
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Enter city"
-                                placeholderTextColor="#9CA3AF"
-                                value={homeDetails.city}
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "city",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
-
-                    {/* State */}
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            State *
-                        </Text>
-
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="map-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
-
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Enter state"
-                                placeholderTextColor="#9CA3AF"
-                                value={homeDetails.state}
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "state",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
-
-                    {/* Country */}
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            Country *
-                        </Text>
-
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="globe-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
-
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Enter country"
-                                placeholderTextColor="#9CA3AF"
-                                value={homeDetails.country}
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "country",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
-
-                    {/* Pincode */}
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
-                            Pincode
-                        </Text>
-
-                        <View style={styles.inputContainer}>
-                            <Ionicons
-                                name="mail-outline"
-                                size={19}
-                                color="#9CA3AF"
-                            />
-
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Enter pincode"
-                                placeholderTextColor="#9CA3AF"
-                                keyboardType="numeric"
-                                maxLength={6}
-                                value={
-                                    homeDetails.pincode
-                                }
-                                onChangeText={(value) =>
-                                    updateField(
-                                        "pincode",
-                                        value
-                                    )
-                                }
-                            />
-                        </View>
-                    </View>
-
-                    {/* Landmark */}
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>
+                    <View
+                        style={
+                            styles.inputGroup
+                        }
+                    >
+                        <Text
+                            style={
+                                styles.label
+                            }
+                        >
                             Landmark
                         </Text>
 
@@ -577,7 +937,9 @@ export default function HomeWorkScreen() {
                                 name="flag-outline"
                                 size={19}
                                 color="#9CA3AF"
-                                style={styles.textAreaIcon}
+                                style={
+                                    styles.textAreaIcon
+                                }
                             />
 
                             <TextInput
@@ -586,37 +948,42 @@ export default function HomeWorkScreen() {
                                     styles.textArea,
                                 ]}
                                 placeholder="Nearby landmark"
-                                placeholderTextColor="#9CA3AF"
+                                placeholderTextColor={colors.secondary}
                                 multiline
                                 value={
                                     homeDetails.landmark
                                 }
-                                onChangeText={(value) =>
+                                onChangeText={(
+                                    value
+                                ) =>
                                     updateField(
                                         "landmark",
                                         value
                                     )
                                 }
+                                editable={!saving}
                             />
                         </View>
                     </View>
                 </View>
 
-                {/* =================================================
-            SAVE BUTTON
-        ================================================= */}
+                {/* SAVE */}
 
                 <TouchableOpacity
-                    style={styles.saveButton}
+                    style={[
+                        styles.saveButton,
+                        (saving ||
+                            loadingLocation) &&
+                            styles.saveButtonDisabled,
+                    ]}
                     activeOpacity={0.85}
-                    onPress={async () => {
-                        const saved = await saveHome();
-
-                        if (saved) {
-                            router.replace("/(tabs)/");
-                        }
-                    }}
-                    disabled={saving || loadingLocation}
+                    onPress={
+                        handleSave
+                    }
+                    disabled={
+                        saving ||
+                        loadingLocation
+                    }
                 >
                     {saving ? (
                         <ActivityIndicator
@@ -630,29 +997,64 @@ export default function HomeWorkScreen() {
                                 color="#FFFFFF"
                             />
 
-                            <Text style={styles.saveButtonText}>
+                            <Text
+                                style={
+                                    styles.saveButtonText
+                                }
+                            >
                                 Save Home
                             </Text>
                         </>
                     )}
                 </TouchableOpacity>
 
-                {/* =================================================
-            INFO
-        ================================================= */}
+                {/* SYNC INFO */}
 
-                <View style={styles.infoBox}>
+                <View
+                    style={
+                        styles.syncBox
+                    }
+                >
+                    <Ionicons
+                        name="cloud-done-outline"
+                        size={20}
+                        color="#16A34A"
+                    />
+
+                    <Text
+                        style={
+                            styles.syncText
+                        }
+                    >
+                        Home details are saved
+                        locally and synced with
+                        your Firebase profile when
+                        you are logged in.
+                    </Text>
+                </View>
+
+                {/* INFO */}
+
+                <View
+                    style={
+                        styles.infoBox
+                    }
+                >
                     <Ionicons
                         name="information-circle-outline"
                         size={20}
-                        color="#2563EB"
+                        color={colors.primary}
                     />
 
-                    <Text style={styles.infoText}>
-                        Tap "Use Current Location" to
-                        automatically fill your current
-                        address. You can edit any field
-                        before saving.
+                    <Text
+                        style={
+                            styles.infoText
+                        }
+                    >
+                        Tap "Use Current Location"
+                        to automatically fill your
+                        current address. You can edit
+                        any field before saving.
                     </Text>
                 </View>
             </ScrollView>
@@ -660,20 +1062,109 @@ export default function HomeWorkScreen() {
     );
 }
 
-/* =========================================================
-   STYLES
-========================================================= */
+// ==================================================
+// INPUT FIELD
+// ==================================================
 
-const styles = StyleSheet.create({
+function InputField({
+    label,
+    icon,
+    placeholder,
+    value,
+    onChangeText,
+    keyboardType,
+    maxLength,
+    editable = true,
+}: any) {
+    const { colors, isDark } = useTheme();
+    const styles = createStyles(colors, isDark);
+
+    return (
+        <View
+            style={styles.inputGroup}
+        >
+            <Text
+                style={styles.label}
+            >
+                {label}
+            </Text>
+
+            <View
+                style={[
+                    styles.inputContainer,
+                    !editable &&
+                        styles.disabledInput,
+                ]}
+            >
+                <Ionicons
+                    name={icon}
+                    size={19}
+                    color={
+                        editable
+                            ? colors.icon
+                            : isDark
+                                ? "#64748B"
+                                : "#D1D5DB"
+                    }
+                />
+
+                <TextInput
+                    style={[
+                        styles.input,
+                        !editable &&
+                            styles.disabledText,
+                    ]}
+                    placeholder={
+                        placeholder
+                    }
+                    placeholderTextColor={colors.secondary}
+                    value={value}
+                    onChangeText={
+                        onChangeText
+                    }
+                    keyboardType={
+                        keyboardType
+                    }
+                    maxLength={
+                        maxLength
+                    }
+                    editable={editable}
+                    autoCapitalize="words"
+                />
+            </View>
+        </View>
+    );
+}
+
+// ==================================================
+// STYLES
+// ==================================================
+
+const createStyles = (colors: ReturnType<typeof useTheme>["colors"], isDark: boolean) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#F9FAFB",
+        backgroundColor: colors.background,
+    },
+
+    loadingScreen: {
+        flex: 1,
+        backgroundColor: colors.background,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+
+    loadingText: {
+        marginTop: 10,
+        color: colors.secondary,
+        fontSize: 14,
     },
 
     scrollContent: {
         padding: 20,
         paddingBottom: 50,
     },
+
+    // HEADER
 
     header: {
         flexDirection: "row",
@@ -685,12 +1176,12 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 28,
         fontWeight: "800",
-        color: "#111827",
+        color: colors.text,
     },
 
     subtitle: {
         fontSize: 14,
-        color: "#6B7280",
+        color: colors.secondary,
         marginTop: 5,
     },
 
@@ -698,15 +1189,17 @@ const styles = StyleSheet.create({
         width: 52,
         height: 52,
         borderRadius: 26,
-        backgroundColor: "#EEF2FF",
+        backgroundColor: isDark ? "#1E1B4B" : "#EEF2FF",
         alignItems: "center",
         justifyContent: "center",
     },
 
+    // CURRENT LOCATION
+
     currentLocationButton: {
-        backgroundColor: "#EFF6FF",
+        backgroundColor: isDark ? "#172554" : "#EFF6FF",
         borderWidth: 1,
-        borderColor: "#BFDBFE",
+        borderColor: isDark ? "#1D4ED8" : "#BFDBFE",
         borderRadius: 18,
         padding: 15,
         flexDirection: "row",
@@ -718,7 +1211,7 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 24,
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.card,
         alignItems: "center",
         justifyContent: "center",
     },
@@ -736,12 +1229,14 @@ const styles = StyleSheet.create({
 
     currentLocationSubtitle: {
         fontSize: 11,
-        color: "#6B7280",
+        color: colors.secondary,
         marginTop: 3,
     },
 
+    // SECTION
+
     section: {
-        backgroundColor: "#FFFFFF",
+        backgroundColor: colors.card,
         borderRadius: 20,
         padding: 18,
         shadowColor: "#000",
@@ -753,7 +1248,7 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontSize: 19,
         fontWeight: "800",
-        color: "#111827",
+        color: colors.text,
         marginBottom: 18,
     },
 
@@ -764,27 +1259,35 @@ const styles = StyleSheet.create({
     label: {
         fontSize: 13,
         fontWeight: "700",
-        color: "#374151",
+        color: isDark ? "#D1D5DB" : "#374151",
         marginBottom: 7,
     },
 
     inputContainer: {
         minHeight: 50,
         borderWidth: 1,
-        borderColor: "#E5E7EB",
+        borderColor: colors.border,
         borderRadius: 13,
-        backgroundColor: "#F9FAFB",
+        backgroundColor: colors.background,
         paddingHorizontal: 13,
         flexDirection: "row",
         alignItems: "center",
+    },
+
+    disabledInput: {
+        backgroundColor: isDark ? "#243044" : "#F3F4F6",
     },
 
     input: {
         flex: 1,
         marginLeft: 10,
         fontSize: 14,
-        color: "#111827",
+        color: colors.text,
         paddingVertical: 12,
+    },
+
+    disabledText: {
+        color: colors.secondary,
     },
 
     textAreaContainer: {
@@ -801,18 +1304,24 @@ const styles = StyleSheet.create({
         textAlignVertical: "top",
     },
 
+    // SAVE
+
     saveButton: {
         height: 56,
         borderRadius: 16,
-        backgroundColor: "#2563EB",
+        backgroundColor: "#4F46E5",
         marginTop: 20,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        shadowColor: "#2563EB",
+        shadowColor: "#4F46E5",
         shadowOpacity: 0.25,
         shadowRadius: 10,
         elevation: 5,
+    },
+
+    saveButtonDisabled: {
+        opacity: 0.7,
     },
 
     saveButtonText: {
@@ -822,9 +1331,32 @@ const styles = StyleSheet.create({
         marginLeft: 8,
     },
 
+    // SYNC
+
+    syncBox: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: isDark ? "#10251A" : "#F0FDF4",
+        borderRadius: 14,
+        padding: 13,
+        marginTop: 15,
+        borderWidth: 1,
+        borderColor: isDark ? "#166534" : "#BBF7D0",
+    },
+
+    syncText: {
+        flex: 1,
+        fontSize: 11,
+        lineHeight: 17,
+        color: isDark ? "#86EFAC" : "#166534",
+        marginLeft: 8,
+    },
+
+    // INFO
+
     infoBox: {
         flexDirection: "row",
-        backgroundColor: "#EFF6FF",
+        backgroundColor: isDark ? "#172554" : "#EFF6FF",
         borderRadius: 14,
         padding: 13,
         marginTop: 15,
@@ -834,7 +1366,10 @@ const styles = StyleSheet.create({
         flex: 1,
         fontSize: 11,
         lineHeight: 17,
-        color: "#4B5563",
+        color: isDark ? "#CBD5E1" : "#4B5563",
         marginLeft: 8,
     },
 });
+
+// Styles are generated from the global theme so the whole screen follows Settings → Dark Mode.
+let styles: ReturnType<typeof createStyles>;

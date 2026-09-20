@@ -33,29 +33,75 @@ GoogleSignin.configure({
 });
 
 // ==================================================
+// FIRESTORE PROFILE SAVE
+// Runs in background so Google login is not blocked
+// by a slow Firestore request.
+// ==================================================
+
+async function saveGoogleUserProfile(firebaseUser: any) {
+  try {
+    console.log(
+      "[GoogleAuth] Saving user profile to Firestore..."
+    );
+
+    await setDoc(
+      doc(db, "users", firebaseUser.uid),
+      {
+        uid: firebaseUser.uid,
+        name: firebaseUser.displayName || "User",
+        email: firebaseUser.email || "",
+        phone: firebaseUser.phoneNumber || "",
+        gender: "",
+        photoURL: firebaseUser.photoURL || "",
+        authProvider: "google.com",
+        updatedAt: serverTimestamp(),
+      },
+      {
+        merge: true,
+      }
+    );
+
+    console.log(
+      "[GoogleAuth] Firestore profile saved."
+    );
+  } catch (error) {
+    // Do not fail Google login just because Firestore
+    // profile saving is slow or temporarily unavailable.
+    console.error(
+      "[GoogleAuth] Firestore profile save failed:",
+      error
+    );
+  }
+}
+
+// ==================================================
 // GOOGLE LOGIN
 // ==================================================
 
 export async function signInWithGoogle() {
   try {
-    // Check Google Play Services
+    console.log("[GoogleAuth] Checking Play Services...");
+
     await GoogleSignin.hasPlayServices({
       showPlayServicesUpdateDialog: true,
     });
 
-    // Open Google account picker
+    console.log("[GoogleAuth] Opening Google Sign-In...");
+
     const response = await GoogleSignin.signIn({});
 
-    // User cancelled the Google login
     if (!isSuccessResponse(response)) {
+      console.log("[GoogleAuth] User cancelled Google login.");
+
       return {
         success: false,
         cancelled: true,
         user: null,
+        code: "CANCELLED",
+        message: "Google login cancelled.",
       };
     }
 
-    // Get Google ID token
     const idToken = response.data.idToken;
 
     if (!idToken) {
@@ -64,11 +110,17 @@ export async function signInWithGoogle() {
       );
     }
 
-    // Create Firebase credential
+    console.log(
+      "[GoogleAuth] Google token received."
+    );
+
     const credential =
       GoogleAuthProvider.credential(idToken);
 
-    // Login into Firebase
+    console.log(
+      "[GoogleAuth] Signing into Firebase..."
+    );
+
     const result = await signInWithCredential(
       auth,
       credential
@@ -76,44 +128,22 @@ export async function signInWithGoogle() {
 
     const firebaseUser = result.user;
 
-    // Save/update profile in Firestore
-    await setDoc(
-      doc(db, "users", firebaseUser.uid),
-      {
-        uid: firebaseUser.uid,
-
-        name:
-          firebaseUser.displayName ||
-          "User",
-
-        email:
-          firebaseUser.email ||
-          "",
-
-        phone:
-          firebaseUser.phoneNumber ||
-          "",
-
-        gender: "",
-
-        photoURL:
-          firebaseUser.photoURL ||
-          "",
-
-        authProvider: "google.com",
-
-        updatedAt:
-          serverTimestamp(),
-      },
-      {
-        merge: true,
-      }
+    console.log(
+      "[GoogleAuth] Firebase login successful:",
+      firebaseUser.uid
     );
+
+    // IMPORTANT:
+    // Do not await Firestore here. Firebase Auth is already
+    // successful, so let the app continue immediately.
+    void saveGoogleUserProfile(firebaseUser);
 
     return {
       success: true,
       cancelled: false,
       user: firebaseUser,
+      code: undefined,
+      message: "",
     };
   } catch (error: any) {
     console.error(

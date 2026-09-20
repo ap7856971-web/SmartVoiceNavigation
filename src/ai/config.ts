@@ -1,13 +1,13 @@
 import Constants from "expo-constants";
 
-export const AI_API_KEY =
-  Constants.expoConfig?.extra?.geminiApiKey ?? "";
+// Mobile app sirf backend URL jaanti hai.
+// Gemini API key yahan MAT rakho.
+export const AI_API_BASE_URL =
+  Constants.expoConfig?.extra?.aiApiBaseUrl ??
+  "http://10.0.2.2:3000";
 
-export const GEMINI_API_KEY = AI_API_KEY;
-
-// Current model used by your project
-export const GEMINI_MODEL = "gemini-2.0-flash";// "gemini-3.6-flash" ❌
-
-if (!AI_API_KEY) {
-  console.warn("[Gemini] API key is missing.");
-}
+// Optional model name.
+// Actual Gemini API key backend/.env mein rahegi.
+export const GEMINI_MODEL =
+  Constants.expoConfig?.extra?.geminiModel ??
+  "gemini-2.0-flash";

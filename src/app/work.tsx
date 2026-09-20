@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+
 import {
   View,
   Text,
@@ -9,14 +10,35 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
+
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+
+import { auth, db } from "../firebase";
+
+// ==================================================
+// STORAGE
+// ==================================================
+
 const WORK_STORAGE_KEY =
   "smartVoiceNavigation_workDetails";
+
+const HOME_WORK_CACHE_KEY =
+  "smartVoiceNavigation_homeWorkCache";
+
+// ==================================================
+// TYPE
+// ==================================================
 
 type WorkDetails = {
   officeName: string;
@@ -30,6 +52,10 @@ type WorkDetails = {
   landmark: string;
 };
 
+// ==================================================
+// EMPTY DATA
+// ==================================================
+
 const EMPTY_WORK: WorkDetails = {
   officeName: "",
   houseNumber: "",
@@ -42,42 +68,219 @@ const EMPTY_WORK: WorkDetails = {
   landmark: "",
 };
 
+// ==================================================
+// WORK SCREEN
+// ==================================================
+
 export default function WorkScreen() {
+  const [loading, setLoading] = useState(true);
   const [loadingLocation, setLoadingLocation] =
     useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [user, setUser] = useState<any>(null);
+
   const [workDetails, setWorkDetails] =
     useState<WorkDetails>(EMPTY_WORK);
 
+  const mountedRef = useRef(true);
+  const firebaseLoadStartedRef = useRef(false);
+
+  // ==================================================
+  // CLEANUP
+  // ==================================================
+
   useEffect(() => {
-    loadWorkDetails();
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
-  const loadWorkDetails = async () => {
+  // ==================================================
+  // LOCAL LOAD FIRST
+  // ==================================================
+
+  useEffect(() => {
+    const loadLocalFirst = async () => {
+      try {
+        const saved =
+          await AsyncStorage.getItem(WORK_STORAGE_KEY);
+
+        if (saved && mountedRef.current) {
+          const data = JSON.parse(saved);
+
+          setWorkDetails({
+            officeName: data.officeName || "",
+            houseNumber: data.houseNumber || "",
+            street: data.street || "",
+            area: data.area || "",
+            city: data.city || "",
+            state: data.state || "",
+            country: data.country || "",
+            pincode: data.pincode || "",
+            landmark: data.landmark || "",
+          });
+        }
+      } catch (error) {
+        console.error(
+          "[Work] Local load error:",
+          error
+        );
+      } finally {
+        // Firebase kabhi initial screen ko block nahi karega.
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadLocalFirst();
+  }, []);
+
+  // ==================================================
+  // AUTH + FIREBASE BACKGROUND SYNC
+  // ==================================================
+
+  useEffect(() => {
+    const unsubscribe =
+      auth.onAuthStateChanged((currentUser) => {
+        if (!mountedRef.current) return;
+
+        setUser(currentUser);
+
+        if (!currentUser) return;
+
+        if (!firebaseLoadStartedRef.current) {
+          firebaseLoadStartedRef.current = true;
+          void loadWorkFromFirebase(currentUser.uid);
+        }
+      });
+
+    return unsubscribe;
+  }, []);
+
+  // ==================================================
+  // FIREBASE BACKGROUND LOAD
+  // ==================================================
+
+  const loadWorkFromFirebase = async (uid: string) => {
     try {
-      const saved = await AsyncStorage.getItem(
-        WORK_STORAGE_KEY
+      const userRef = doc(
+        db,
+        "users",
+        uid
       );
 
-      if (saved) {
-        const data = JSON.parse(saved);
+      const snapshot = await getDoc(userRef);
 
-        setWorkDetails({
-          officeName: data.officeName || "",
-          houseNumber: data.houseNumber || "",
-          street: data.street || "",
-          area: data.area || "",
-          city: data.city || "",
-          state: data.state || "",
-          country: data.country || "",
-          pincode: data.pincode || "",
-          landmark: data.landmark || "",
-        });
+      if (!snapshot.exists()) return;
+
+      const data = snapshot.data();
+
+      let firebaseWork: WorkDetails;
+
+      if (
+        data.workDetails &&
+        typeof data.workDetails === "object"
+      ) {
+        const savedWork = data.workDetails;
+
+        firebaseWork = {
+          officeName:
+            savedWork.officeName || "",
+          houseNumber:
+            savedWork.houseNumber || "",
+          street:
+            savedWork.street || "",
+          area:
+            savedWork.area || "",
+          city:
+            savedWork.city || "",
+          state:
+            savedWork.state || "",
+          country:
+            savedWork.country || "",
+          pincode:
+            savedWork.pincode || "",
+          landmark:
+            savedWork.landmark || "",
+        };
+      } else {
+        firebaseWork = {
+          ...EMPTY_WORK,
+          officeName:
+            data.workOfficeName || "",
+          area:
+            data.workArea || "",
+          city:
+            data.workCity || "",
+          state:
+            data.workState || "",
+          country:
+            data.workCountry || "",
+          pincode:
+            data.workPincode || "",
+          landmark:
+            data.workLandmark || "",
+        };
+      }
+
+      const hasFirebaseData =
+        Object.values(firebaseWork).some(
+          (value) =>
+            String(value).trim().length > 0
+        );
+
+      if (!hasFirebaseData) return;
+
+      if (mountedRef.current) {
+        setWorkDetails(firebaseWork);
+      }
+
+      // Firebase data ko local cache mein refresh karo.
+      await AsyncStorage.setItem(
+        WORK_STORAGE_KEY,
+        JSON.stringify(firebaseWork)
+      );
+
+      // Map/Home-Work cards ke shared cache ko update karo.
+      try {
+        const existing =
+          await AsyncStorage.getItem(
+            HOME_WORK_CACHE_KEY
+          );
+
+        const cache = existing
+          ? JSON.parse(existing)
+          : {};
+
+        await AsyncStorage.setItem(
+          HOME_WORK_CACHE_KEY,
+          JSON.stringify({
+            ...cache,
+            workAddress:
+              buildWorkAddress(firebaseWork),
+          })
+        );
+      } catch (cacheError) {
+        console.error(
+          "[Work] Shared cache update error:",
+          cacheError
+        );
       }
     } catch (error) {
-      console.error("[Work] Load error:", error);
+      // Firebase slow/offline hone par local data
+      // screen par available rahega.
+      console.error(
+        "[Work] Firebase background load error:",
+        error
+      );
     }
   };
+
+  // ==================================================
+  // UPDATE FIELD
+  // ==================================================
 
   const updateField = (
     field: keyof WorkDetails,
@@ -88,6 +291,33 @@ export default function WorkScreen() {
       [field]: value,
     }));
   };
+
+  // ==================================================
+  // FORMAT ADDRESS
+  // ==================================================
+
+  const buildWorkAddress = (
+    details: WorkDetails
+  ) => {
+    return [
+      details.officeName,
+      details.houseNumber,
+      details.street,
+      details.area,
+      details.city,
+      details.state,
+      details.country,
+      details.pincode,
+      details.landmark,
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(", ");
+  };
+
+  // ==================================================
+  // CURRENT LOCATION
+  // ==================================================
 
   const useCurrentLocation = async () => {
     try {
@@ -101,6 +331,7 @@ export default function WorkScreen() {
           "Location Permission Required",
           "Please allow location permission to automatically fill your work address."
         );
+
         return;
       }
 
@@ -129,6 +360,7 @@ export default function WorkScreen() {
           "Address Not Found",
           "Unable to find address details for your current location."
         );
+
         return;
       }
 
@@ -165,25 +397,32 @@ export default function WorkScreen() {
         ...previous,
 
         houseNumber:
-          houseNumber || previous.houseNumber,
+          houseNumber ||
+          previous.houseNumber,
 
         street:
-          street || previous.street,
+          street ||
+          previous.street,
 
         area:
-          area || previous.area,
+          area ||
+          previous.area,
 
         city:
-          city || previous.city,
+          city ||
+          previous.city,
 
         state:
-          state || previous.state,
+          state ||
+          previous.state,
 
         country:
-          country || previous.country,
+          country ||
+          previous.country,
 
         pincode:
-          pincode || previous.pincode,
+          pincode ||
+          previous.pincode,
       }));
 
       Alert.alert(
@@ -205,13 +444,20 @@ export default function WorkScreen() {
     }
   };
 
+  // ==================================================
+  // SAVE WORK
+  // ==================================================
+
   const saveWork = async () => {
     try {
-      if (
-        !workDetails.officeName &&
-        !workDetails.area &&
-        !workDetails.city
-      ) {
+      const hasAddress =
+        workDetails.officeName.trim() ||
+        workDetails.houseNumber.trim() ||
+        workDetails.street.trim() ||
+        workDetails.area.trim() ||
+        workDetails.city.trim();
+
+      if (!hasAddress) {
         Alert.alert(
           "Work Details Required",
           "Please use your current location or add your work details."
@@ -220,12 +466,132 @@ export default function WorkScreen() {
         return false;
       }
 
+      if (
+        workDetails.pincode.trim() &&
+        !/^\d{6}$/.test(
+          workDetails.pincode.trim()
+        )
+      ) {
+        Alert.alert(
+          "Invalid Pincode",
+          "Please enter a valid 6-digit pincode."
+        );
+
+        return false;
+      }
+
       setSaving(true);
+
+      const cleanWork: WorkDetails = {
+        officeName:
+          workDetails.officeName.trim(),
+        houseNumber:
+          workDetails.houseNumber.trim(),
+        street:
+          workDetails.street.trim(),
+        area:
+          workDetails.area.trim(),
+        city:
+          workDetails.city.trim(),
+        state:
+          workDetails.state.trim(),
+        country:
+          workDetails.country.trim(),
+        pincode:
+          workDetails.pincode.trim(),
+        landmark:
+          workDetails.landmark.trim(),
+      };
+
+      const workAddress =
+        buildWorkAddress(cleanWork);
+
+      // ==================================================
+      // 1. LOCAL SAVE — FAST
+      // ==================================================
 
       await AsyncStorage.setItem(
         WORK_STORAGE_KEY,
-        JSON.stringify(workDetails)
+        JSON.stringify(cleanWork)
       );
+
+      // Map/Home cards ko bhi instantly update karo.
+      try {
+        const existing =
+          await AsyncStorage.getItem(
+            HOME_WORK_CACHE_KEY
+          );
+
+        const cache = existing
+          ? JSON.parse(existing)
+          : {};
+
+        await AsyncStorage.setItem(
+          HOME_WORK_CACHE_KEY,
+          JSON.stringify({
+            ...cache,
+            workAddress,
+          })
+        );
+      } catch (cacheError) {
+        console.error(
+          "[Work] Shared cache save error:",
+          cacheError
+        );
+      }
+
+      if (mountedRef.current) {
+        setWorkDetails(cleanWork);
+        setSaving(false);
+      }
+
+      // ==================================================
+      // 2. FIREBASE SAVE — BACKGROUND
+      // ==================================================
+
+      if (user) {
+        void setDoc(
+          doc(
+            db,
+            "users",
+            user.uid
+          ),
+          {
+            workDetails: cleanWork,
+            workAddress,
+            workOfficeName:
+              cleanWork.officeName,
+            workArea:
+              cleanWork.area,
+            workCity:
+              cleanWork.city,
+            workState:
+              cleanWork.state,
+            workCountry:
+              cleanWork.country,
+            workPincode:
+              cleanWork.pincode,
+            workLandmark:
+              cleanWork.landmark,
+            updatedAt:
+              serverTimestamp(),
+          },
+          {
+            merge: true,
+          }
+        )
+          .then(() =>
+            console.log(
+              "[Work] Firebase background save successful"
+            )
+          )
+          .catch((firebaseError) =>
+            console.error(
+              "[Work] Firebase background save error:",
+              firebaseError
+            )
+          );
+      }
 
       return true;
     } catch (error) {
@@ -234,24 +600,55 @@ export default function WorkScreen() {
         error
       );
 
-      Alert.alert(
-        "Error",
-        "Unable to save Work details."
-      );
+      if (mountedRef.current) {
+        setSaving(false);
+
+        Alert.alert(
+          "Error",
+          "Unable to save Work details locally."
+        );
+      }
 
       return false;
-    } finally {
-      setSaving(false);
     }
   };
+
+  // ==================================================
+  // HANDLE SAVE
+  // ==================================================
 
   const handleSave = async () => {
     const saved = await saveWork();
 
     if (saved) {
+      // Local save complete hote hi immediately back.
+      // Firebase sync background mein continue karega.
       router.replace("/(tabs)/");
     }
   };
+
+  // ==================================================
+  // LOADING
+  // ==================================================
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingScreen}>
+        <ActivityIndicator
+          size="large"
+          color="#2563EB"
+        />
+
+        <Text style={styles.loadingText}>
+          Loading Work Details...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // ==================================================
+  // SCREEN
+  // ==================================================
 
   return (
     <SafeAreaView style={styles.container}>
@@ -260,8 +657,10 @@ export default function WorkScreen() {
         contentContainerStyle={
           styles.scrollContent
         }
+        keyboardShouldPersistTaps="handled"
       >
         {/* HEADER */}
+
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>
@@ -283,13 +682,22 @@ export default function WorkScreen() {
         </View>
 
         {/* CURRENT LOCATION */}
+
         <TouchableOpacity
-          style={styles.currentLocationButton}
+          style={
+            styles.currentLocationButton
+          }
           activeOpacity={0.85}
           onPress={useCurrentLocation}
-          disabled={loadingLocation}
+          disabled={
+            loadingLocation || saving
+          }
         >
-          <View style={styles.currentLocationIcon}>
+          <View
+            style={
+              styles.currentLocationIcon
+            }
+          >
             {loadingLocation ? (
               <ActivityIndicator
                 size="small"
@@ -304,7 +712,11 @@ export default function WorkScreen() {
             )}
           </View>
 
-          <View style={styles.locationButtonText}>
+          <View
+            style={
+              styles.locationButtonText
+            }
+          >
             <Text
               style={
                 styles.currentLocationTitle
@@ -332,238 +744,131 @@ export default function WorkScreen() {
         </TouchableOpacity>
 
         {/* WORK ADDRESS */}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             Work Address
           </Text>
 
-          {/* Office Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Office / Company Name
-            </Text>
+          <InputField
+            label="Office / Company Name"
+            icon="business-outline"
+            placeholder="Office or company name"
+            value={workDetails.officeName}
+            onChangeText={(value) =>
+              updateField(
+                "officeName",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="business-outline"
-                size={19}
-                color="#9CA3AF"
-              />
+          <InputField
+            label="Building / Flat / Office Number"
+            icon="home-outline"
+            placeholder="e.g. Tower A, 3rd Floor"
+            value={workDetails.houseNumber}
+            onChangeText={(value) =>
+              updateField(
+                "houseNumber",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Office or company name"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.officeName}
-                onChangeText={(value) =>
-                  updateField(
-                    "officeName",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
+          <InputField
+            label="Street / Road"
+            icon="navigate-outline"
+            placeholder="Enter street or road"
+            value={workDetails.street}
+            onChangeText={(value) =>
+              updateField(
+                "street",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-          {/* House / Building */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Building / Flat / Office Number
-            </Text>
+          <InputField
+            label="Area / Colony"
+            icon="location-outline"
+            placeholder="Area / Colony"
+            value={workDetails.area}
+            onChangeText={(value) =>
+              updateField(
+                "area",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="home-outline"
-                size={19}
-                color="#9CA3AF"
-              />
+          <InputField
+            label="City"
+            icon="business-outline"
+            placeholder="City"
+            value={workDetails.city}
+            onChangeText={(value) =>
+              updateField(
+                "city",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Tower A, 3rd Floor"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.houseNumber}
-                onChangeText={(value) =>
-                  updateField(
-                    "houseNumber",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
+          <InputField
+            label="State"
+            icon="map-outline"
+            placeholder="State"
+            value={workDetails.state}
+            onChangeText={(value) =>
+              updateField(
+                "state",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-          {/* Street */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Street / Road
-            </Text>
+          <InputField
+            label="Country"
+            icon="globe-outline"
+            placeholder="Country"
+            value={workDetails.country}
+            onChangeText={(value) =>
+              updateField(
+                "country",
+                value
+              )
+            }
+            editable={!saving}
+          />
 
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="navigate-outline"
-                size={19}
-                color="#9CA3AF"
-              />
+          <InputField
+            label="Pincode"
+            icon="mail-outline"
+            placeholder="Pincode"
+            value={workDetails.pincode}
+            onChangeText={(value) =>
+              updateField(
+                "pincode",
+                value.replace(
+                  /\D/g,
+                  ""
+                )
+              )
+            }
+            keyboardType="numeric"
+            maxLength={6}
+            editable={!saving}
+          />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Enter street or road"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.street}
-                onChangeText={(value) =>
-                  updateField(
-                    "street",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
+          {/* LANDMARK */}
 
-          {/* Area */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Area / Colony
-            </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="location-outline"
-                size={19}
-                color="#9CA3AF"
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Area / Colony"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.area}
-                onChangeText={(value) =>
-                  updateField(
-                    "area",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
-
-          {/* City */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              City
-            </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="business-outline"
-                size={19}
-                color="#9CA3AF"
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="City"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.city}
-                onChangeText={(value) =>
-                  updateField(
-                    "city",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
-
-          {/* State */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              State
-            </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="map-outline"
-                size={19}
-                color="#9CA3AF"
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="State"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.state}
-                onChangeText={(value) =>
-                  updateField(
-                    "state",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
-
-          {/* Country */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Country
-            </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="globe-outline"
-                size={19}
-                color="#9CA3AF"
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Country"
-                placeholderTextColor="#9CA3AF"
-                value={workDetails.country}
-                onChangeText={(value) =>
-                  updateField(
-                    "country",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
-
-          {/* Pincode */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Pincode
-            </Text>
-
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="mail-outline"
-                size={19}
-                color="#9CA3AF"
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Pincode"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="numeric"
-                maxLength={6}
-                value={workDetails.pincode}
-                onChangeText={(value) =>
-                  updateField(
-                    "pincode",
-                    value
-                  )
-                }
-              />
-            </View>
-          </View>
-
-          {/* Landmark */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
               Landmark
@@ -579,7 +884,9 @@ export default function WorkScreen() {
                 name="flag-outline"
                 size={19}
                 color="#9CA3AF"
-                style={styles.textAreaIcon}
+                style={
+                  styles.textAreaIcon
+                }
               />
 
               <TextInput
@@ -590,21 +897,30 @@ export default function WorkScreen() {
                 placeholder="Nearby landmark"
                 placeholderTextColor="#9CA3AF"
                 multiline
-                value={workDetails.landmark}
+                value={
+                  workDetails.landmark
+                }
                 onChangeText={(value) =>
                   updateField(
                     "landmark",
                     value
                   )
                 }
+                editable={!saving}
               />
             </View>
           </View>
         </View>
 
         {/* SAVE */}
+
         <TouchableOpacity
-          style={styles.saveButton}
+          style={[
+            styles.saveButton,
+            (saving ||
+              loadingLocation) &&
+              styles.saveButtonDisabled,
+          ]}
           activeOpacity={0.85}
           onPress={handleSave}
           disabled={
@@ -623,14 +939,35 @@ export default function WorkScreen() {
                 color="#FFFFFF"
               />
 
-              <Text style={styles.saveButtonText}>
+              <Text
+                style={
+                  styles.saveButtonText
+                }
+              >
                 Save Work
               </Text>
             </>
           )}
         </TouchableOpacity>
 
+        {/* SYNC INFO */}
+
+        <View style={styles.syncBox}>
+          <Ionicons
+            name="cloud-done-outline"
+            size={20}
+            color="#16A34A"
+          />
+
+          <Text style={styles.syncText}>
+            Work details are saved locally
+            and synced with your Firebase
+            profile when you are logged in.
+          </Text>
+        </View>
+
         {/* INFO */}
+
         <View style={styles.infoBox}>
           <Ionicons
             name="information-circle-outline"
@@ -650,16 +987,92 @@ export default function WorkScreen() {
   );
 }
 
+// ==================================================
+// INPUT FIELD
+// ==================================================
+
+function InputField({
+  label,
+  icon,
+  placeholder,
+  value,
+  onChangeText,
+  keyboardType,
+  maxLength,
+  editable = true,
+}: any) {
+  return (
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>
+        {label}
+      </Text>
+
+      <View
+        style={[
+          styles.inputContainer,
+          !editable &&
+            styles.disabledInput,
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={19}
+          color={
+            editable
+              ? "#9CA3AF"
+              : "#D1D5DB"
+          }
+        />
+
+        <TextInput
+          style={[
+            styles.input,
+            !editable &&
+              styles.disabledText,
+          ]}
+          placeholder={placeholder}
+          placeholderTextColor="#9CA3AF"
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          maxLength={maxLength}
+          editable={editable}
+          autoCapitalize="words"
+        />
+      </View>
+    </View>
+  );
+}
+
+// ==================================================
+// STYLES
+// ==================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F9FAFB",
   },
 
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  loadingText: {
+    marginTop: 10,
+    color: "#6B7280",
+    fontSize: 14,
+  },
+
   scrollContent: {
     padding: 20,
     paddingBottom: 50,
   },
+
+  // HEADER
 
   header: {
     flexDirection: "row",
@@ -688,6 +1101,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
+  // CURRENT LOCATION
 
   currentLocationButton: {
     backgroundColor: "#EFF6FF",
@@ -725,6 +1140,8 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     marginTop: 3,
   },
+
+  // SECTION
 
   section: {
     backgroundColor: "#FFFFFF",
@@ -765,12 +1182,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  disabledInput: {
+    backgroundColor: "#F3F4F6",
+  },
+
   input: {
     flex: 1,
     marginLeft: 10,
     fontSize: 14,
     color: "#111827",
     paddingVertical: 12,
+  },
+
+  disabledText: {
+    color: "#6B7280",
   },
 
   textAreaContainer: {
@@ -787,6 +1212,8 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
 
+  // SAVE
+
   saveButton: {
     height: 56,
     borderRadius: 16,
@@ -801,12 +1228,39 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 
+  saveButtonDisabled: {
+    opacity: 0.7,
+  },
+
   saveButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "800",
     marginLeft: 8,
   },
+
+  // FIREBASE SYNC
+
+  syncBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDF4",
+    borderRadius: 14,
+    padding: 13,
+    marginTop: 15,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+
+  syncText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 17,
+    color: "#166534",
+    marginLeft: 8,
+  },
+
+  // INFO
 
   infoBox: {
     flexDirection: "row",

@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -15,77 +16,35 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { registerUser } from "../services/authService";
 
 export default function SignupScreen() {
-  // ============================================
-  // FORM STATES
-  // ============================================
-
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
-  // ============================================
-  // PASSWORD VISIBILITY
-  // ============================================
-
-  const [showPassword, setShowPassword] =
-    useState(false);
-
-  const [showConfirmPassword, setShowConfirmPassword] =
-    useState(false);
-
-  // ============================================
-  // OTHER STATES
-  // ============================================
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [agree, setAgree] = useState(false);
 
-  // ============================================
-  // CREATE ACCOUNT
-  // ============================================
-
   const handleSignup = async () => {
-    // --------------------------------------------
-    // NAME
-    // --------------------------------------------
-
     const cleanName = name.trim();
 
     if (!cleanName) {
-      Alert.alert(
-        "Error",
-        "Please enter your full name."
-      );
+      Alert.alert("Error", "Please enter your full name.");
       return;
     }
 
-    // --------------------------------------------
-    // EMAIL
-    // --------------------------------------------
-
-    const cleanEmail =
-      email.trim().toLowerCase();
-
-    const emailRegex =
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(cleanEmail)) {
-      Alert.alert(
-        "Error",
-        "Please enter a valid email."
-      );
+      Alert.alert("Error", "Please enter a valid email.");
       return;
     }
 
-    // --------------------------------------------
-    // PHONE
-    // --------------------------------------------
-
-    const cleanPhone = phone
-      .replace(/\D/g, "");
+    const cleanPhone = phone.replace(/\D/g, "");
 
     if (!/^[6-9][0-9]{9}$/.test(cleanPhone)) {
       Alert.alert(
@@ -95,137 +54,42 @@ export default function SignupScreen() {
       return;
     }
 
-    // --------------------------------------------
-    // PASSWORD
-    // --------------------------------------------
-
     if (password.length < 8) {
-      Alert.alert(
-        "Error",
-        "Password should be at least 8 characters."
-      );
+      Alert.alert("Error", "Password should be at least 8 characters.");
       return;
     }
-
-    // --------------------------------------------
-    // CONFIRM PASSWORD
-    // --------------------------------------------
 
     if (password !== confirmPassword) {
-      Alert.alert(
-        "Error",
-        "Passwords do not match."
-      );
+      Alert.alert("Error", "Passwords do not match.");
       return;
     }
-
-    // --------------------------------------------
-    // TERMS
-    // --------------------------------------------
 
     if (!agree) {
-      Alert.alert(
-        "Error",
-        "Please accept Terms & Conditions."
-      );
+      Alert.alert("Error", "Please accept Terms & Conditions.");
       return;
     }
 
-    // --------------------------------------------
-    // PREVENT DOUBLE CLICK
-    // --------------------------------------------
-
-    if (loading) {
-      return;
-    }
+    if (loading) return;
 
     try {
       setLoading(true);
 
-      console.log(
-        "===================================="
-      );
-
-      console.log(
-        "[Signup] Creating account..."
-      );
-
-      console.log(
-        "[Signup] Name:",
-        cleanName
-      );
-
-      console.log(
-        "[Signup] Email:",
-        cleanEmail
-      );
-
-      console.log(
-        "[Signup] Phone:",
-        cleanPhone
-      );
-
-      // ==========================================
-      // REGISTER USER
-      // ==========================================
-
       await registerUser(
         cleanName,
         cleanEmail,
-        password
-      );
-
-      // ==========================================
-      // SAVE USER NAME
-      // ==========================================
-
-      await AsyncStorage.setItem(
-        "smartVoiceNavigation_userName",
-        cleanName
-      );
-
-      // ==========================================
-      // SAVE USER EMAIL
-      // ==========================================
-
-      await AsyncStorage.setItem(
-        "smartVoiceNavigation_userEmail",
-        cleanEmail
-      );
-
-      // ==========================================
-      // SAVE USER PHONE
-      // ==========================================
-
-      await AsyncStorage.setItem(
-        "smartVoiceNavigation_userPhone",
+        password,
         cleanPhone
       );
 
-      console.log(
-        "[Signup] User information saved."
-      );
-
-      console.log(
-        "[Signup] User name:",
-        cleanName
-      );
-
-      console.log(
-        "===================================="
-      );
-
-      // ==========================================
-      // DIRECTLY GO TO TABS / HOME
-      // ==========================================
+      await AsyncStorage.multiSet([
+        ["smartVoiceNavigation_userName", cleanName],
+        ["smartVoiceNavigation_userEmail", cleanEmail],
+        ["smartVoiceNavigation_userPhone", cleanPhone],
+      ]);
 
       router.replace("/(tabs)");
-
     } catch (error: any) {
-      console.error(
-        "[Signup] Registration error:",
-        error
-      );
+      console.error("[Signup] Registration error:", error);
 
       Alert.alert(
         "Signup Failed",
@@ -237,372 +101,371 @@ export default function SignupScreen() {
     }
   };
 
-  // ============================================
-  // UI
-  // ============================================
-
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      {/* ========================================
-          LOGO
-      ======================================== */}
-
-      <Text style={styles.logo}>
-        🚗
-      </Text>
-
-      {/* ========================================
-          TITLE
-      ======================================== */}
-
-      <Text style={styles.heading}>
-        Welcome 👋
-      </Text>
-
-      <Text style={styles.subtitle}>
-        Create your Smart Voice Navigation account
-      </Text>
-
-      {/* ========================================
-          FULL NAME
-      ======================================== */}
-
-      <View style={styles.inputBox}>
-        <MaterialIcons
-          name="person"
-          size={22}
-          color="#2563EB"
-        />
-
-        <TextInput
-          placeholder="Full Name"
-          placeholderTextColor="#9CA3AF"
-          value={name}
-          onChangeText={setName}
-          style={styles.input}
-          autoCapitalize="words"
-          autoCorrect={false}
-        />
-      </View>
-
-      {/* ========================================
-          EMAIL
-      ======================================== */}
-
-      <View style={styles.inputBox}>
-        <MaterialIcons
-          name="email"
-          size={22}
-          color="#2563EB"
-        />
-
-        <TextInput
-          placeholder="Email"
-          placeholderTextColor="#9CA3AF"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          value={email}
-          onChangeText={setEmail}
-          style={styles.input}
-        />
-      </View>
-
-      {/* ========================================
-          PHONE
-      ======================================== */}
-
-      <View style={styles.inputBox}>
-        <MaterialIcons
-          name="phone"
-          size={22}
-          color="#2563EB"
-        />
-
-        <TextInput
-          placeholder="Phone Number"
-          placeholderTextColor="#9CA3AF"
-          keyboardType="phone-pad"
-          maxLength={10}
-          value={phone}
-          onChangeText={(text) => {
-            setPhone(
-              text.replace(/\D/g, "")
-            );
-          }}
-          style={styles.input}
-        />
-      </View>
-
-      {/* ========================================
-          PASSWORD
-      ======================================== */}
-
-      <View style={styles.inputBox}>
-        <MaterialIcons
-          name="lock"
-          size={22}
-          color="#2563EB"
-        />
-
-        <TextInput
-          placeholder="Password"
-          placeholderTextColor="#9CA3AF"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          style={styles.input}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        <TouchableOpacity
-          onPress={() =>
-            setShowPassword(!showPassword)
-          }
-        >
-          <MaterialIcons
-            name={
-              showPassword
-                ? "visibility"
-                : "visibility-off"
-            }
-            size={22}
-            color="#9CA3AF"
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* ========================================
-          CONFIRM PASSWORD
-      ======================================== */}
-
-      <View style={styles.inputBox}>
-        <MaterialIcons
-          name="lock-outline"
-          size={22}
-          color="#2563EB"
-        />
-
-        <TextInput
-          placeholder="Confirm Password"
-          placeholderTextColor="#9CA3AF"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          secureTextEntry={!showConfirmPassword}
-          style={styles.input}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        <TouchableOpacity
-          onPress={() =>
-            setShowConfirmPassword(
-              !showConfirmPassword
-            )
-          }
-        >
-          <MaterialIcons
-            name={
-              showConfirmPassword
-                ? "visibility"
-                : "visibility-off"
-            }
-            size={22}
-            color="#9CA3AF"
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* ========================================
-          TERMS & CONDITIONS
-      ======================================== */}
-
-      <View style={styles.termsContainer}>
-        <TouchableOpacity
-          onPress={() =>
-            setAgree(!agree)
-          }
-        >
-          <MaterialIcons
-            name={
-              agree
-                ? "check-box"
-                : "check-box-outline-blank"
-            }
-            size={26}
-            color="#2563EB"
-          />
-        </TouchableOpacity>
-
-        <Text style={styles.termsText}>
-          I agree to the Terms & Conditions
-        </Text>
-      </View>
-
-      {/* ========================================
-          CREATE ACCOUNT BUTTON
-      ======================================== */}
-
-      <TouchableOpacity
-        style={[
-          styles.signupButton,
-          loading && styles.disabledButton,
-        ]}
-        onPress={handleSignup}
-        disabled={loading}
-        activeOpacity={0.8}
+    <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.signupText}>
-            Create Account
-          </Text>
-        )}
-      </TouchableOpacity>
+        {/* Header - kept simple like the reference */}
+        <View style={styles.header}>
+          <Text style={styles.heading}>Create Account 👋</Text>
+          <Text style={styles.subtitle}>Sign up to continue</Text>
+        </View>
 
-      {/* ========================================
-          LOGIN LINK
-      ======================================== */}
+        {/* Form */}
+        <View style={styles.formContainer}>
+          {/* Full name */}
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Full name</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                placeholder="Enter your full name"
+                placeholderTextColor="#B8B8B8"
+                value={name}
+                onChangeText={setName}
+                style={styles.input}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+              <MaterialIcons
+                name="person-outline"
+                size={20}
+                color="#A7A7A7"
+              />
+            </View>
+          </View>
 
-      <TouchableOpacity
-        onPress={() =>
-          router.push("/login")
-        }
-        disabled={loading}
-      >
-        <Text style={styles.loginText}>
-          Already have an account?{" "}
-          <Text style={styles.loginLink}>
-            Login
-          </Text>
-        </Text>
-      </TouchableOpacity>
-    </ScrollView>
+          {/* Email */}
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Email</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                placeholder="Enter your email"
+                placeholderTextColor="#B8B8B8"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={email}
+                onChangeText={setEmail}
+                style={styles.input}
+              />
+              <MaterialIcons
+                name="mail-outline"
+                size={20}
+                color="#A7A7A7"
+              />
+            </View>
+          </View>
+
+          {/* Phone */}
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Phone number</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                placeholder="Enter your 10-digit mobile number"
+                placeholderTextColor="#B8B8B8"
+                keyboardType="phone-pad"
+                maxLength={10}
+                value={phone}
+                onChangeText={(text) =>
+                  setPhone(text.replace(/\D/g, ""))
+                }
+                style={styles.input}
+              />
+              <MaterialIcons
+                name="phone"
+                size={20}
+                color="#A7A7A7"
+              />
+            </View>
+          </View>
+
+          {/* Password */}
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Password</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                placeholder="Create a password"
+                placeholderTextColor="#B8B8B8"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                style={styles.input}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(!showPassword)}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons
+                  name={
+                    showPassword
+                      ? "visibility"
+                      : "visibility-off"
+                  }
+                  size={20}
+                  color="#A7A7A7"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Confirm password */}
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Confirm password</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                placeholder="Re-enter your password"
+                placeholderTextColor="#B8B8B8"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                style={styles.input}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() =>
+                  setShowConfirmPassword(!showConfirmPassword)
+                }
+                activeOpacity={0.7}
+              >
+                <MaterialIcons
+                  name={
+                    showConfirmPassword
+                      ? "visibility"
+                      : "visibility-off"
+                  }
+                  size={20}
+                  color="#A7A7A7"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Terms */}
+          <TouchableOpacity
+            style={styles.termsContainer}
+            onPress={() => setAgree(!agree)}
+            activeOpacity={0.8}
+          >
+            <View
+              style={[
+                styles.checkbox,
+                agree && styles.checkboxChecked,
+              ]}
+            >
+              {agree && (
+                <MaterialIcons
+                  name="check"
+                  size={15}
+                  color="#FFFFFF"
+                />
+              )}
+            </View>
+
+            <Text style={styles.termsText}>
+              I agree to the processing of{" "}
+              <Text style={styles.termsBold}>Personal data</Text>
+            </Text>
+          </TouchableOpacity>
+
+          {/* Sign up */}
+          <TouchableOpacity
+            style={[
+              styles.signupButton,
+              loading && styles.disabledButton,
+            ]}
+            onPress={handleSignup}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.signupText}>Sign up</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Login */}
+          <TouchableOpacity
+            onPress={() => router.push("/login")}
+            disabled={loading}
+            activeOpacity={0.7}
+            style={styles.loginButton}
+          >
+            <Text style={styles.loginText}>
+              Already have an account?{" "}
+              <Text style={styles.loginLink}>Login</Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
-
-// ============================================
-// STYLES
-// ============================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#FFFFFF",
   },
 
   contentContainer: {
-    paddingHorizontal: 25,
-    paddingTop: 60,
-    paddingBottom: 50,
+    flexGrow: 1,
+    paddingHorizontal: 22,
+    paddingTop: Platform.OS === "ios" ? 78 : 58,
+    paddingBottom: 32,
   },
 
-  logo: {
-    fontSize: 60,
-    textAlign: "center",
-    marginBottom: 10,
+  header: {
+    alignItems: "center",
+    marginBottom: 34,
   },
 
   heading: {
-    fontSize: 34,
-    fontWeight: "700",
+    fontSize: 25,
+    fontWeight: "900",
+    color: "#1558C8",
     textAlign: "center",
-    color: "#2563EB",
   },
 
   subtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    color: "#858585",
     textAlign: "center",
-    color: "#6B7280",
-    fontSize: 16,
-    marginTop: 10,
-    marginBottom: 30,
   },
 
-  inputBox: {
+  formContainer: {
+    width: "100%",
+  },
+
+  fieldBlock: {
+    marginBottom: 18,
+  },
+
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#333333",
+    marginBottom: 7,
+    marginLeft: 7,
+  },
+
+  inputContainer: {
+    height: 55,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#EEEEEE",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingHorizontal: 15,
-    marginBottom: 18,
-    height: 58,
-
-    elevation: 2,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    paddingLeft: 14,
+    paddingRight: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.035,
+    shadowRadius: 7,
     shadowOffset: {
       width: 0,
       height: 2,
     },
+    elevation: 1,
   },
 
   input: {
     flex: 1,
-    marginLeft: 10,
-    fontSize: 16,
-    color: "#111827",
+    height: "100%",
+    paddingRight: 10,
+    fontSize: 14,
+    color: "#333333",
+  },
+
+  eyeButton: {
+    width: 32,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   termsContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 5,
+    marginTop: 2,
+    marginBottom: 21,
+    paddingHorizontal: 4,
+  },
+
+  checkbox: {
+    width: 19,
+    height: 19,
+    borderRadius: 4,
+    borderWidth: 1.4,
+    borderColor: "#D2D2D2",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  checkboxChecked: {
+    backgroundColor: "#1558C8",
+    borderColor: "#1558C8",
   },
 
   termsText: {
-    marginLeft: 10,
     flex: 1,
-    color: "#374151",
-    fontSize: 14,
+    marginLeft: 9,
+    color: "#888888",
+    fontSize: 12.5,
+  },
+
+  termsBold: {
+    color: "#1558C8",
+    fontWeight: "600",
   },
 
   signupButton: {
-    backgroundColor: "#2563EB",
-    height: 56,
-    borderRadius: 14,
+    height: 53,
+    borderRadius: 24,
+    backgroundColor: "#1558C8",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 20,
-
-    shadowColor: "#2563EB",
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    shadowColor: "#1558C8",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
     shadowOffset: {
       width: 0,
-      height: 3,
+      height: 4,
     },
+    elevation: 4,
+  },
 
-    elevation: 5,
+  signupText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
 
   disabledButton: {
     opacity: 0.6,
   },
 
-  signupText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 18,
+  loginButton: {
+    marginTop: 24,
+    alignItems: "center",
   },
 
   loginText: {
-    marginTop: 25,
-    textAlign: "center",
-    color: "#6B7280",
-    fontSize: 15,
+    color: "#888888",
+    fontSize: 13,
   },
 
   loginLink: {
-    color: "#2563EB",
+    color: "#1558C8",
     fontWeight: "700",
   },
 });

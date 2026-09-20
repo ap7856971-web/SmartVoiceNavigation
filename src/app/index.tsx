@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
   },
 
   imageContainer: {
-    marginBottom: 40,
+    marginBottom: 30,
   },
 
   image: {
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
 
   button: {
     marginTop: 70,
-    width: "100%",
+    width: "110%",
     height: 60,
     borderRadius: 30,
     backgroundColor: "#2563EB",

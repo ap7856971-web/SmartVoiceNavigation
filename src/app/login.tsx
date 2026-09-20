@@ -1,16 +1,20 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
-  View,
-  Text,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
+  View,
   Alert,
+  ScrollView,
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
 
 import { signInWithGoogle } from "../services/googleAuth";
@@ -21,1461 +25,563 @@ import {
   resetOTP,
 } from "../services/phoneAuth";
 
-type LoginMode =
-  | "choice"
-  | "email"
-  | "phone";
+type LoginMode = "email" | "phone";
+
+const GoogleLogo = ({ size = 20 }: { size?: number }) => (
+  <Svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+    <Path
+      fill="#4285F4"
+      d="M14.9 8.161c0-.476-.039-.954-.121-1.422h-6.64v2.695h3.802a3.24 3.24 0 01-1.407 2.127v1.75h2.269c1.332-1.22 2.097-3.02 2.097-5.15z"
+    />
+    <Path
+      fill="#34A853"
+      d="M8.14 15c1.898 0 3.499-.62 4.665-1.69l-2.268-1.749c-.631.427-1.446.669-2.395.669-1.836 0-3.393-1.232-3.952-2.888H1.85v1.803A7.044 7.044 0 008.14 15z"
+    />
+    <Path
+      fill="#FBBC04"
+      d="M4.187 9.342a4.17 4.17 0 010-2.68V4.859H1.849a6.97 6.97 0 000 6.286l2.338-1.803z"
+    />
+    <Path
+      fill="#EA4335"
+      d="M8.14 3.77a3.837 3.837 0 012.7 1.05l2.01-1.999a6.786 6.786 0 00-4.71-1.82 7.042 7.042 0 00-6.29 3.858L4.186 6.66c.556-1.658 2.116-2.89 3.952-2.89z"
+    />
+  </Svg>
+);
 
 export default function LoginScreen() {
-  // ============================================
-  // LOGIN MODE
-  // ============================================
+  const [loginValue, setLoginValue] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginMode, setLoginMode] = useState<LoginMode>("email");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [secureText, setSecureText] = useState(true);
 
-  const [loginMode, setLoginMode] =
-    useState<LoginMode>("choice");
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
 
-  // ============================================
-  // EMAIL LOGIN
-  // ============================================
+  const otpInputRef = useRef<TextInput>(null);
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] =
-    useState("");
+  const detectLoginMode = (value: string): LoginMode => {
+    const trimmed = value.trim();
+    if (trimmed.includes("@")) return "email";
+    const digits = trimmed.replace(/\D/g, "");
+    if (digits.length > 0) return "phone";
+    return "email";
+  };
 
-  const [secureText, setSecureText] =
-    useState(true);
+  const handleLoginValueChange = (text: string) => {
+    setPhoneError("");
+    const mode = detectLoginMode(text);
 
-  const [loading, setLoading] =
-    useState(false);
+    if (mode === "email" && loginMode === "phone") {
+      resetOTP();
+      setOtp("");
+      setOtpSent(false);
+    }
 
-  // ============================================
-  // GOOGLE LOGIN
-  // ============================================
+    setLoginMode(mode);
 
-  const [googleLoading, setGoogleLoading] =
-    useState(false);
-
-  // ============================================
-  // PHONE LOGIN
-  // ============================================
-
-  const [phone, setPhone] =
-    useState("");
-
-  const [otp, setOtp] =
-    useState("");
-
-  const [otpSent, setOtpSent] =
-    useState(false);
-
-  const [phoneLoading, setPhoneLoading] =
-    useState(false);
-
-  const [phoneError, setPhoneError] =
-    useState("");
-
-  // ============================================
-  // EMAIL LOGIN
-  // ============================================
+    if (mode === "phone") {
+      setLoginValue(text.replace(/\D/g, "").slice(0, 10));
+    } else {
+      setLoginValue(text);
+    }
+  };
 
   const handleEmailLogin = async () => {
-    if (!email.trim()) {
-      Alert.alert(
-        "Error",
-        "Please enter your email."
-      );
+    if (loading || googleLoading || phoneLoading) return;
+    const cleanEmail = loginValue.trim().toLowerCase();
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      Alert.alert("Error", "Please enter a valid email address.");
       return;
     }
-
-    if (!password.trim()) {
-      Alert.alert(
-        "Error",
-        "Please enter your password."
-      );
-      return;
-    }
-
-    if (loading) {
+    if (!password) {
+      Alert.alert("Error", "Please enter your password.");
       return;
     }
 
     try {
       setLoading(true);
-
-      console.log(
-        "[Login] Email login started..."
-      );
-
-      await loginUser(
-        email.trim().toLowerCase(),
-        password
-      );
-
-      console.log(
-        "[Login] Email login successful."
-      );
-
-      router.replace("/(tabs)");
+      await loginUser(cleanEmail, password);
+      router.replace("/Home");
     } catch (error: any) {
-      console.error(
-        "[Login] Email login error:",
-        error
-      );
-
-      Alert.alert(
-        "Login Failed",
-        error?.message ||
-          "Invalid email or password."
-      );
+      Alert.alert("Login Failed", error?.message || "Unable to sign in.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ============================================
-  // GOOGLE LOGIN
-  // ============================================
-
   const handleGoogleLogin = async () => {
-    if (googleLoading) {
-      return;
-    }
-
+    if (googleLoading || loading || phoneLoading) return;
     try {
       setGoogleLoading(true);
-
-      console.log(
-        "[Login] Google login started..."
-      );
-
-      const result =
-        await signInWithGoogle();
-
+      const result = await signInWithGoogle();
       if (result.success) {
-        console.log(
-          "[Login] Google login successful."
-        );
-
-        router.replace("/(tabs)");
+        router.replace("/Home");
         return;
       }
-
       if (!result.cancelled) {
-        Alert.alert(
-          "Google Login Failed",
-          result.message ||
-            "Please try again."
-        );
+        Alert.alert("Google Login Failed", result.message || "Please try again.");
       }
     } catch (error: any) {
-      console.error(
-        "[Login] Google login error:",
-        error
-      );
-
-      Alert.alert(
-        "Google Login Failed",
-        error?.message ||
-          "Unable to sign in with Google."
-      );
+      Alert.alert("Google Login Failed", error?.message || "Unable to sign in.");
     } finally {
       setGoogleLoading(false);
     }
   };
 
-  // ============================================
-  // SEND PHONE OTP
-  // ============================================
-
   const handleSendOTP = async () => {
-    if (phoneLoading) {
-      return;
-    }
+    if (phoneLoading || loading || googleLoading) return;
+    const cleanPhone = loginValue.replace(/\D/g, "");
 
-    const cleanPhone =
-      phone.replace(/\D/g, "");
-
-    // Indian mobile validation
-    if (
-      !/^[6-9][0-9]{9}$/.test(
-        cleanPhone
-      )
-    ) {
-      setPhoneError(
-        "Please enter a valid 10 digit mobile number."
-      );
+    if (!/^[6-9][0-9]{9}$/.test(cleanPhone)) {
+      setPhoneError("Please enter a valid 10 digit mobile number.");
       return;
     }
 
     try {
       setPhoneError("");
       setPhoneLoading(true);
-
-      console.log(
-        "[Login] Requesting TEST OTP for:",
-        cleanPhone
-      );
-
-      await sendPhoneOTP(
-        cleanPhone
-      );
-
-      console.log(
-        "[Login] TEST OTP generated."
-      );
-
+      await sendPhoneOTP(cleanPhone);
+      setLoginValue(cleanPhone);
       setOtp("");
       setOtpSent(true);
     } catch (error: any) {
-      console.error(
-        "[Login] SEND OTP ERROR:",
-        error
-      );
-
-      console.error(
-        "[Login] Code:",
-        error?.code
-      );
-
-      console.error(
-        "[Login] Message:",
-        error?.message
-      );
-
-      setPhoneError(
-        error?.message ||
-          "Failed to generate OTP."
-      );
+      setPhoneError(error?.message || "Failed to generate OTP.");
     } finally {
       setPhoneLoading(false);
     }
   };
 
-  // ============================================
-  // VERIFY OTP
-  // ============================================
-
   const handleVerifyOTP = async () => {
-    if (phoneLoading) {
-      return;
-    }
+    if (phoneLoading || loading || googleLoading) return;
+    const cleanOTP = otp.replace(/\D/g, "");
 
-    const cleanOTP =
-      otp.replace(/\D/g, "");
-
-    if (
-      !/^[0-9]{6}$/.test(
-        cleanOTP
-      )
-    ) {
-      setPhoneError(
-        "Please enter the 6 digit OTP."
-      );
+    if (!/^[0-9]{6}$/.test(cleanOTP)) {
+      setPhoneError("Please enter the 6 digit OTP.");
       return;
     }
 
     try {
       setPhoneError("");
       setPhoneLoading(true);
-
-      console.log(
-        "[Login] Verifying TEST OTP..."
-      );
-
-      const user =
-        await verifyPhoneOTP(
-          cleanOTP
-        );
-
-      console.log(
-        "[Login] OTP login successful."
-      );
-
-      if (user) {
-        console.log(
-          "[Login] Phone:",
-          user.phoneNumber
-        );
-      }
-
-      router.replace("/(tabs)");
+      await verifyPhoneOTP(cleanOTP);
+      router.replace("/Home");
     } catch (error: any) {
-      console.error(
-        "[Login] VERIFY OTP ERROR:",
-        error
-      );
-
-      console.error(
-        "[Login] Code:",
-        error?.code
-      );
-
-      console.error(
-        "[Login] Message:",
-        error?.message
-      );
-
-      setPhoneError(
-        error?.message ||
-          "OTP verification failed."
-      );
+      setPhoneError(error?.message || "OTP verification failed.");
     } finally {
       setPhoneLoading(false);
     }
   };
 
-  // ============================================
-  // RESEND OTP
-  // ============================================
+  useEffect(() => {
+    if (!otpSent) return;
 
-  const handleResendOTP = async () => {
-    if (phoneLoading) {
-      return;
-    }
+    const timer = setTimeout(() => {
+      otpInputRef.current?.focus();
+    }, 150);
 
-    resetOTP();
+    return () => clearTimeout(timer);
+  }, [otpSent]);
 
-    setOtp("");
-    setOtpSent(false);
-    setPhoneError("");
-
-    setTimeout(() => {
-      handleSendOTP();
-    }, 100);
-  };
-
-  // ============================================
-  // CHANGE PHONE NUMBER
-  // ============================================
-
-  const handleChangeNumber = () => {
-    resetOTP();
-
-    setOtp("");
-    setOtpSent(false);
-    setPhoneError("");
-  };
-
-  // ============================================
-  // BACK TO CHOICE
-  // ============================================
-
-  const handleBackToChoice = () => {
-    resetOTP();
-
-    setLoginMode("choice");
-
-    setOtp("");
-    setOtpSent(false);
-    setPhone("");
-    setPhoneError("");
-  };
-
-  // ============================================
-  // FORGOT PASSWORD
-  // ============================================
-
-  const handleForgotPassword = () => {
-    Alert.alert(
-      "Forgot Password",
-      "Please use your registered email to reset your password."
-    );
-  };
-
-  // ============================================
-  // CHOICE SCREEN
-  // ============================================
-
-  if (loginMode === "choice") {
-    return (
-      <SafeAreaView
-        style={styles.container}
-      >
-        <View style={styles.choiceContent}>
-          {/* TITLE */}
-
-          <Text style={styles.title}>
-            Welcome Back 👋
-          </Text>
-
-          <Text style={styles.subtitle}>
-            Choose how you want to login
-          </Text>
-
-          {/* EMAIL */}
-
-          <TouchableOpacity
-            style={styles.choiceButton}
-            activeOpacity={0.8}
-            onPress={() =>
-              setLoginMode("email")
-            }
-          >
-            <View
-              style={styles.choiceIcon}
-            >
-              <Ionicons
-                name="mail-outline"
-                size={25}
-                color="#2563EB"
-              />
-            </View>
-
-            <View
-              style={styles.choiceTextContainer}
-            >
-              <Text
-                style={styles.choiceTitle}
-              >
-                Login with Email
-              </Text>
-
-              <Text
-                style={styles.choiceSubtitle}
-              >
-                Use your email and password
-              </Text>
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={22}
-              color="#9CA3AF"
-            />
-          </TouchableOpacity>
-
-          {/* PHONE */}
-
-          <TouchableOpacity
-            style={styles.choiceButton}
-            activeOpacity={0.8}
-            onPress={() =>
-              setLoginMode("phone")
-            }
-          >
-            <View
-              style={styles.choiceIcon}
-            >
-              <Ionicons
-                name="call-outline"
-                size={25}
-                color="#2563EB"
-              />
-            </View>
-
-            <View
-              style={styles.choiceTextContainer}
-            >
-              <Text
-                style={styles.choiceTitle}
-              >
-                Login with Phone
-              </Text>
-
-              <Text
-                style={styles.choiceSubtitle}
-              >
-                Login using OTP
-              </Text>
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={22}
-              color="#9CA3AF"
-            />
-          </TouchableOpacity>
-
-          {/* GOOGLE */}
-
-          <TouchableOpacity
-            style={styles.googleButton}
-            activeOpacity={0.8}
-            onPress={handleGoogleLogin}
-            disabled={googleLoading}
-          >
-            {googleLoading ? (
-              <ActivityIndicator
-                size="small"
-                color="#4285F4"
-              />
-            ) : (
-              <Ionicons
-                name="logo-google"
-                size={25}
-                color="#4285F4"
-              />
-            )}
-
-            <Text
-              style={styles.googleText}
-            >
-              Continue with Google
-            </Text>
-          </TouchableOpacity>
-
-          {/* DIVIDER */}
-
-          <View
-            style={styles.dividerContainer}
-          >
-            <View
-              style={styles.dividerLine}
-            />
-
-            <Text
-              style={styles.dividerText}
-            >
-              Secure Login
-            </Text>
-
-            <View
-              style={styles.dividerLine}
-            />
-          </View>
-
-          {/* SIGN UP */}
-
-          <TouchableOpacity
-            style={styles.signupContainer}
-            onPress={() =>
-              router.push("/signup")
-            }
-          >
-            <Text
-              style={styles.signupText}
-            >
-              Don't have an account?{" "}
-              <Text
-                style={styles.signupLink}
-              >
-                Sign Up
-              </Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // ============================================
-  // EMAIL SCREEN
-  // ============================================
-
-  if (loginMode === "email") {
-    return (
-      <SafeAreaView
-        style={styles.container}
-      >
-        <View style={styles.content}>
-          {/* BACK */}
-
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={handleBackToChoice}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color="#111827"
-            />
-
-            <Text
-              style={styles.backText}
-            >
-              Back
-            </Text>
-          </TouchableOpacity>
-
-          {/* TITLE */}
-
-          <Text style={styles.title}>
-            Welcome Back 👋
-          </Text>
-
-          <Text style={styles.subtitle}>
-            Login with your email
-          </Text>
-
-          {/* EMAIL */}
-
-          <Text style={styles.label}>
-            Email
-          </Text>
-
-          <View
-            style={styles.inputContainer}
-          >
-            <Ionicons
-              name="mail-outline"
-              size={22}
-              color="#9CA3AF"
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-          {/* PASSWORD */}
-
-          <Text
-            style={[
-              styles.label,
-              {
-                marginTop: 20,
-              },
-            ]}
-          >
-            Password
-          </Text>
-
-          <View
-            style={styles.inputContainer}
-          >
-            <Ionicons
-              name="lock-closed-outline"
-              size={22}
-              color="#9CA3AF"
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              placeholderTextColor="#9CA3AF"
-              secureTextEntry={secureText}
-              value={password}
-              onChangeText={setPassword}
-            />
-
-            <TouchableOpacity
-              onPress={() =>
-                setSecureText(
-                  !secureText
-                )
-              }
-            >
-              <Ionicons
-                name={
-                  secureText
-                    ? "eye-off-outline"
-                    : "eye-outline"
-                }
-                size={22}
-                color="#9CA3AF"
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* FORGOT PASSWORD */}
-
-          <TouchableOpacity
-            style={styles.forgotContainer}
-            onPress={
-              handleForgotPassword
-            }
-          >
-            <Text
-              style={styles.forgotText}
-            >
-              Forgot Password?
-            </Text>
-          </TouchableOpacity>
-
-          {/* LOGIN */}
-
-          <TouchableOpacity
-            style={[
-              styles.loginButton,
-              loading &&
-                styles.disabledButton,
-            ]}
-            activeOpacity={0.8}
-            onPress={handleEmailLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator
-                color="#FFFFFF"
-              />
-            ) : (
-              <Text
-                style={styles.loginText}
-              >
-                Login
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          {/* GOOGLE */}
-
-          <View
-            style={styles.dividerContainer}
-          >
-            <View
-              style={styles.dividerLine}
-            />
-
-            <Text
-              style={styles.dividerText}
-            >
-              Or
-            </Text>
-
-            <View
-              style={styles.dividerLine}
-            />
-          </View>
-
-          <TouchableOpacity
-            style={styles.googleButton}
-            onPress={handleGoogleLogin}
-            disabled={googleLoading}
-          >
-            {googleLoading ? (
-              <ActivityIndicator
-                color="#4285F4"
-              />
-            ) : (
-              <Ionicons
-                name="logo-google"
-                size={24}
-                color="#4285F4"
-              />
-            )}
-
-            <Text
-              style={styles.googleText}
-            >
-              Continue with Google
-            </Text>
-          </TouchableOpacity>
-
-          {/* PHONE */}
-
-          <TouchableOpacity
-            style={styles.switchMethodButton}
-            onPress={() =>
-              setLoginMode("phone")
-            }
-          >
-            <Ionicons
-              name="call-outline"
-              size={19}
-              color="#2563EB"
-            />
-
-            <Text
-              style={styles.switchMethodText}
-            >
-              Login with Phone
-            </Text>
-          </TouchableOpacity>
-
-          {/* SIGN UP */}
-
-          <TouchableOpacity
-            style={styles.signupContainer}
-            onPress={() =>
-              router.push("/signup")
-            }
-          >
-            <Text
-              style={styles.signupText}
-            >
-              Don't have an account?{" "}
-              <Text
-                style={styles.signupLink}
-              >
-                Sign Up
-              </Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // ============================================
-  // PHONE SCREEN
-  // ============================================
+  const otpDigits = Array.from({ length: 6 }, (_, index) => otp[index] || "");
 
   return (
-    <SafeAreaView
-      style={styles.container}
-    >
-      <View style={styles.content}>
-        {/* BACK */}
-
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={handleBackToChoice}
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Ionicons
-            name="arrow-back"
-            size={24}
-            color="#111827"
-          />
-
-          <Text
-            style={styles.backText}
-          >
-            Back
-          </Text>
-        </TouchableOpacity>
-
-        {/* TITLE */}
-
-        <Text style={styles.title}>
-          Welcome Back 👋
-        </Text>
-
-        <Text style={styles.subtitle}>
-          Login with your phone number
-        </Text>
-
-        {!otpSent ? (
-          <>
-            {/* PHONE NUMBER */}
-
-            <Text style={styles.label}>
-              Mobile Number
-            </Text>
-
-            <View
-              style={styles.phoneInputContainer}
-            >
-              <Ionicons
-                name="call-outline"
-                size={22}
-                color="#9CA3AF"
-              />
-
-              <Text
-                style={styles.countryCode}
-              >
-                +91
+          <View style={styles.content}>
+            {/* HEADING SECTION */}
+            <View style={styles.headerContainer}>
+              <Text style={styles.title}>
+                Welcome Back <Text style={styles.waveEmoji}>👋</Text>
               </Text>
-
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="Enter 10 digit mobile number"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="phone-pad"
-                maxLength={10}
-                value={phone}
-                editable={!phoneLoading}
-                onChangeText={(text) => {
-                  setPhoneError("");
-
-                  setPhone(
-                    text.replace(
-                      /\D/g,
-                      ""
-                    )
-                  );
-                }}
-              />
+              <Text style={styles.subtitle}>Sign in to continue</Text>
             </View>
 
-            {/* ERROR */}
-
-            {phoneError ? (
-              <Text
-                style={styles.phoneError}
-              >
-                {phoneError}
+            {/* INPUT SECTION */}
+            <View style={styles.formContainer}>
+              <Text style={styles.inputLabel}>
+                {loginMode === "phone" ? "Phone Number" : "Email"}
               </Text>
-            ) : null}
 
-            {/* SEND OTP */}
-
-            <TouchableOpacity
-              style={[
-                styles.loginButton,
-                phoneLoading &&
-                  styles.disabledButton,
-              ]}
-              activeOpacity={0.8}
-              onPress={handleSendOTP}
-              disabled={phoneLoading}
-            >
-              {phoneLoading ? (
-                <ActivityIndicator
-                  color="#FFFFFF"
+              <View style={[styles.inputWrapper, phoneError ? styles.inputError : null]}>
+                <Ionicons
+                  name={loginMode === "phone" ? "call-outline" : "person-outline"}
+                  size={18}
+                  color="#9CA3AF"
+                  style={styles.inputIcon}
                 />
-              ) : (
-                <Text
-                  style={styles.loginText}
-                >
-                  Send OTP
-                </Text>
+                {loginMode === "phone" && <Text style={styles.countryCode}>+91 </Text>}
+                <TextInput
+                  style={styles.input}
+                  placeholder={loginMode === "phone" ? "Enter phone number" : "Enter your email"}
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType={loginMode === "phone" ? "phone-pad" : "email-address"}
+                  autoCapitalize="none"
+                  value={loginValue}
+                  editable={!otpSent && !phoneLoading}
+                  maxLength={loginMode === "phone" ? 10 : 120}
+                  onChangeText={handleLoginValueChange}
+                />
+              </View>
+
+              {loginMode === "email" && (
+                <>
+                  <Text style={[styles.inputLabel, { marginTop: 16 }]}>Password</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={18}
+                      color="#9CA3AF"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter your password"
+                      placeholderTextColor="#9CA3AF"
+                      secureTextEntry={secureText}
+                      value={password}
+                      onChangeText={setPassword}
+                      editable={!loading && !googleLoading}
+                    />
+                    <TouchableOpacity onPress={() => setSecureText(!secureText)}>
+                      <Ionicons
+                        name={secureText ? "eye-off-outline" : "eye-outline"}
+                        size={18}
+                        color="#9CA3AF"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.forgotContainer}
+                    onPress={() =>
+                      Alert.alert("Forgot Password", "Password reset instructions sent.")
+                    }
+                  >
+                    <Text style={styles.forgotText}>Forgot Password?</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.loginButton, loading && styles.disabledBtn]}
+                    onPress={handleEmailLogin}
+                    disabled={loading || googleLoading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.loginButtonText}>Login</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
               )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            {/* OTP */}
 
-            <Text style={styles.label}>
-              Enter OTP
-            </Text>
+              {loginMode === "phone" && !otpSent && (
+                <>
+                  {phoneError ? <Text style={styles.errorText}>{phoneError}</Text> : null}
+                  <TouchableOpacity
+                    style={[styles.loginButton, { marginTop: 20 }, phoneLoading && styles.disabledBtn]}
+                    onPress={handleSendOTP}
+                    disabled={phoneLoading}
+                  >
+                    {phoneLoading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.loginButtonText}>Send OTP</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
 
-            <Text
-              style={styles.otpDescription}
-            >
-              TEST OTP for +91 {phone}
-              {"\n"}
-              Check your terminal / Metro
-              console.
-            </Text>
+              {loginMode === "phone" && otpSent && (
+                <>
+                  <View style={{ marginTop: 15 }}>
+                    <Text style={styles.otpDescription}>
+                      OTP sent to +91 {loginValue}
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      style={styles.otpBoxesContainer}
+                      onPress={() => otpInputRef.current?.focus()}
+                    >
+                      {otpDigits.map((digit, index) => (
+                        <View
+                          key={index}
+                          style={[
+                            styles.otpBox,
+                            index === otp.length && styles.otpBoxActive,
+                          ]}
+                        >
+                          <Text style={styles.otpDigit}>{digit}</Text>
+                        </View>
+                      ))}
+                    </TouchableOpacity>
+                    <TextInput
+                      ref={otpInputRef}
+                      value={otp}
+                      onChangeText={(t) => setOtp(t.replace(/\D/g, "").slice(0, 6))}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      style={styles.hiddenOTPInput}
+                    />
+                  </View>
 
-            <View
-              style={styles.inputContainer}
-            >
-              <Ionicons
-                name="keypad-outline"
-                size={22}
-                color="#9CA3AF"
-              />
+                  {phoneError ? <Text style={styles.errorText}>{phoneError}</Text> : null}
 
-              <TextInput
-                style={styles.otpInput}
-                placeholder="6 digit OTP"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="number-pad"
-                maxLength={6}
-                value={otp}
-                editable={!phoneLoading}
-                autoFocus
-                onChangeText={(text) => {
-                  setPhoneError("");
-
-                  setOtp(
-                    text.replace(
-                      /\D/g,
-                      ""
-                    )
-                  );
-                }}
-              />
+                  <TouchableOpacity
+                    style={[styles.loginButton, { marginTop: 20 }, phoneLoading && styles.disabledBtn]}
+                    onPress={handleVerifyOTP}
+                    disabled={phoneLoading}
+                  >
+                    {phoneLoading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.loginButtonText}>Verify OTP</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
 
-            {/* ERROR */}
+            {/* DIVIDER & SOCIAL BUTTONS */}
+            <View style={styles.dividerContainer}>
+              <Text style={styles.dividerText}>or continue with</Text>
+            </View>
 
-            {phoneError ? (
-              <Text
-                style={styles.phoneError}
+            <View style={styles.socialRow}>
+              <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
+                <GoogleLogo size={22} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.socialBtn}>
+                <Ionicons name="logo-apple" size={24} color="#000000" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.socialBtn}
+                onPress={() => {
+                  setLoginMode("phone");
+                  setLoginValue("");
+                  setOtpSent(false);
+                }}
               >
-                {phoneError}
-              </Text>
-            ) : null}
+                <Ionicons name="call" size={20} color="#0D9488" />
+              </TouchableOpacity>
+            </View>
 
-            {/* VERIFY */}
-
+            {/* FOOTER */}
             <TouchableOpacity
-              style={[
-                styles.loginButton,
-                phoneLoading &&
-                  styles.disabledButton,
-              ]}
-              activeOpacity={0.8}
-              onPress={handleVerifyOTP}
-              disabled={phoneLoading}
+              style={styles.signupContainer}
+              onPress={() => router.push("/signup")}
             >
-              {phoneLoading ? (
-                <ActivityIndicator
-                  color="#FFFFFF"
-                />
-              ) : (
-                <Text
-                  style={styles.loginText}
-                >
-                  Verify OTP
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            {/* RESEND */}
-
-            <TouchableOpacity
-              style={styles.resendContainer}
-              onPress={handleResendOTP}
-              disabled={phoneLoading}
-            >
-              <Text
-                style={styles.resendText}
-              >
-                Didn't receive OTP?{" "}
-                Resend OTP
+              <Text style={styles.signupText}>
+                Don't have an account? <Text style={styles.signupLink}>Sign Up</Text>
               </Text>
             </TouchableOpacity>
-
-            {/* CHANGE NUMBER */}
-
-            <TouchableOpacity
-              style={
-                styles.changeNumberContainer
-              }
-              onPress={
-                handleChangeNumber
-              }
-            >
-              <Text
-                style={styles.changeNumber}
-              >
-                ← Change phone number
-              </Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        {/* EMAIL SWITCH */}
-
-        <TouchableOpacity
-          style={styles.switchMethodButton}
-          onPress={() =>
-            setLoginMode("email")
-          }
-        >
-          <Ionicons
-            name="mail-outline"
-            size={19}
-            color="#2563EB"
-          />
-
-          <Text
-            style={styles.switchMethodText}
-          >
-            Login with Email
-          </Text>
-        </TouchableOpacity>
-
-        {/* SIGN UP */}
-
-        <TouchableOpacity
-          style={styles.signupContainer}
-          onPress={() =>
-            router.push("/signup")
-          }
-        >
-          <Text
-            style={styles.signupText}
-          >
-            Don't have an account?{" "}
-            <Text
-              style={styles.signupLink}
-            >
-              Sign Up
-            </Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
-// =====================================================
-// STYLES
-// =====================================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-
-  content: {
+  keyboardView: {
     flex: 1,
-    paddingHorizontal: 25,
-    paddingTop: 35,
   },
-
-  choiceContent: {
-    flex: 1,
-    paddingHorizontal: 25,
-    paddingTop: 80,
-  },
-
-  title: {
-    fontSize: 34,
-    fontWeight: "700",
-    color: "#2563EB",
-    textAlign: "center",
-  },
-
-  subtitle: {
-    marginTop: 10,
-    marginBottom: 30,
-    fontSize: 18,
-    color: "#6B7280",
-    textAlign: "center",
-  },
-
-  // ============================================
-  // CHOICE BUTTONS
-  // ============================================
-
-  choiceButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: "100%",
-    minHeight: 78,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: 16,
-    marginBottom: 15,
-
-    elevation: 3,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 5,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-  },
-
-  choiceIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: "#EFF6FF",
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: "center",
+  },
+  content: {
+    paddingHorizontal: 28,
+    paddingVertical: 20,
+  },
+  headerContainer: {
     alignItems: "center",
+    marginBottom: 32,
   },
-
-  choiceTextContainer: {
-    flex: 1,
-    marginLeft: 14,
+  title: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#2563EB",
+    marginBottom: 6,
   },
-
-  choiceTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#111827",
+  waveEmoji: {
+    fontSize: 22,
   },
-
-  choiceSubtitle: {
-    fontSize: 13,
+  subtitle: {
+    fontSize: 14,
     color: "#6B7280",
-    marginTop: 4,
   },
-
-  // ============================================
-  // BACK
-  // ============================================
-
-  backButton: {
+  formContainer: {
+    width: "100%",
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#374151",
+    marginBottom: 8,
+  },
+  inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    marginBottom: 25,
-  },
-
-  backText: {
-    marginLeft: 8,
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-
-  // ============================================
-  // LABEL
-  // ============================================
-
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 10,
-  },
-
-  // ============================================
-  // INPUT
-  // ============================================
-
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#F3F4F6",
+    borderRadius: 16,
     paddingHorizontal: 16,
-    height: 58,
-
-    elevation: 2,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    height: 52,
   },
-
+  inputIcon: {
+    marginRight: 10,
+  },
+  countryCode: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
   input: {
     flex: 1,
-    marginLeft: 10,
-    fontSize: 16,
-    color: "#111827",
-  },
-
-  // ============================================
-  // PHONE
-  // ============================================
-
-  phoneInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: 16,
-    height: 58,
-
-    elevation: 2,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-  },
-
-  countryCode: {
-    marginLeft: 8,
-    marginRight: 6,
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111827",
-  },
-
-  phoneInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#111827",
-  },
-
-  // ============================================
-  // OTP
-  // ============================================
-
-  otpDescription: {
-    color: "#6B7280",
     fontSize: 14,
-    marginBottom: 12,
-    lineHeight: 21,
+    color: "#1F2937",
   },
-
-  otpInput: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: 5,
-    color: "#111827",
+  inputError: {
+    borderColor: "#EF4444",
   },
-
-  // ============================================
-  // BUTTON
-  // ============================================
-
+  forgotContainer: {
+    alignSelf: "flex-end",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  forgotText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#2563EB",
+  },
   loginButton: {
-    marginTop: 25,
-    height: 58,
-    borderRadius: 16,
-    backgroundColor: "#2563EB",
+    height: 53,
+    borderRadius: 24,
+    backgroundColor: "#1558C8",
     justifyContent: "center",
     alignItems: "center",
-
-    shadowColor: "#2563EB",
-    shadowOpacity: 0.3,
+    shadowColor: "#1558C8",
+    shadowOpacity: 0.18,
     shadowRadius: 8,
     shadowOffset: {
       width: 0,
-      height: 5,
+      height: 4,
     },
-
-    elevation: 6,
+    elevation: 4,
   },
 
-  disabledButton: {
-    opacity: 0.6,
-  },
-
-  loginText: {
+  loginButtonText: {
     color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "600",
   },
-
-  // ============================================
-  // GOOGLE
-  // ============================================
-
-  googleButton: {
-    height: 58,
-    width: "100%",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-
+  disabledBtn: {
+    opacity: 0.7,
+  },
+  dividerContainer: {
+    alignItems: "center",
+    marginVertical: 28,
+  },
+  dividerText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+  },
+  socialRow: {
     flexDirection: "row",
     justifyContent: "center",
+    gap: 16,
     alignItems: "center",
-
-    marginTop: 15,
-
-    elevation: 2,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    marginBottom: 36,
+  },
+  socialBtn: {
+    width: 76,
+    height: 58,
+    borderRadius: 13,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#EDF1EB",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#6B8264",
+    shadowOpacity: 0.08,
+    shadowRadius: 9,
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
+    elevation: 2,
   },
-
-  googleText: {
-    marginLeft: 12,
-    color: "#111827",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-
-  // ============================================
-  // DIVIDER
-  // ============================================
-
-  dividerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 25,
-  },
-
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
-
-  dividerText: {
-    marginHorizontal: 12,
-    color: "#9CA3AF",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
-  // ============================================
-  // FORGOT
-  // ============================================
-
-  forgotContainer: {
-    alignSelf: "flex-end",
-    marginTop: 15,
-  },
-
-  forgotText: {
-    color: "#2563EB",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-
-  // ============================================
-  // SWITCH LOGIN METHOD
-  // ============================================
-
-  switchMethodButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 22,
-  },
-
-  switchMethodText: {
-    marginLeft: 7,
-    color: "#2563EB",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
-  // ============================================
-  // PHONE ERRORS
-  // ============================================
-
-  phoneError: {
-    color: "#DC2626",
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 12,
-    lineHeight: 19,
-  },
-
-  // ============================================
-  // RESEND
-  // ============================================
-
-  resendContainer: {
-    alignItems: "center",
-    marginTop: 18,
-  },
-
-  resendText: {
-    color: "#2563EB",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  // ============================================
-  // CHANGE NUMBER
-  // ============================================
-
-  changeNumberContainer: {
-    alignItems: "center",
-    marginTop: 18,
-  },
-
-  changeNumber: {
-    color: "#2563EB",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  // ============================================
-  // SIGNUP
-  // ============================================
-
   signupContainer: {
-    marginTop: 30,
     alignItems: "center",
   },
-
   signupText: {
-    fontSize: 16,
-    color: "#6B7280",
-    textAlign: "center",
+    fontSize: 14,
+    color: "#4B5563",
   },
-
   signupLink: {
     color: "#2563EB",
     fontWeight: "700",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 12,
+    marginTop: 6,
+    textAlign: "center",
+  },
+  otpDescription: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  otpBoxesContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  otpBox: {
+    width: 42,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  otpBoxActive: {
+    borderColor: "#2563EB",
+    backgroundColor: "#FFFFFF",
+  },
+  otpDigit: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1F2937",
+  },
+  hiddenOTPInput: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
 });
