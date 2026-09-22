@@ -221,15 +221,24 @@ export default function VoiceTab() {
   });
 
   useSpeechRecognitionEvent("error", (event) => {
+    // Android can emit "no-speech" when a recognition session ends
+    // normally or when the user stops listening. Do not treat that as
+    // an app error or speak an error message over the UI.
+    if (event.error === "no-speech") {
+      console.log("[VoiceTab] Native speech ended without speech.");
+      setStatus((current) =>
+        current === "recording" ? "idle" : current
+      );
+      return;
+    }
+
     console.error("[VoiceTab] Native speech error:", event.error, event.message);
     setStatus("error");
 
     const message =
       event.error === "not-allowed"
         ? "Microphone or speech recognition permission was denied."
-        : event.error === "no-speech"
-          ? "No speech was detected. Please try again."
-          : "Speech recognition failed. Please try again.";
+        : "Speech recognition failed. Please try again.";
 
     setReply(message);
     Speech.speak(message, { language: "en-US", rate: 0.95 });
