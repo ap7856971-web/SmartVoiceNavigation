@@ -1513,29 +1513,70 @@ const askGeminiBackend = async (
   );
 
   try {
-    const response = await fetch(
-      `${AI_API_BASE_URL}/api/ai`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: userText,
-        }),
-        signal: controller.signal,
-      }
-    );
+    let lastError: unknown = null;
 
-    if (!response.ok) {
-      throw new Error(
-        `AI backend returned ${response.status}`
-      );
+    // Retry transient backend/API failures once before falling back
+    // to the local command parser.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await fetch(
+          `${AI_API_BASE_URL}/api/ai`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: userText,
+            }),
+            signal: controller.signal,
+          }
+        );
+
+        if (!response.ok) {
+          const error = new Error(
+            `AI backend returned ${response.status}`
+          );
+
+          // Retry only transient server/rate-limit failures.
+          if ((response.status >= 500 || response.status === 429) && attempt < 2) {
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            continue;
+          }
+
+          throw error;
+        }
+
+        const data = await response.json();
+        return parseGeminiResult(data);
+      } catch (error) {
+        lastError = error;
+
+        if (attempt >= 2) {
+          throw error;
+        }
+
+        const message = String(
+          error instanceof Error ? error.message : error
+        );
+
+        // Retry network failures and transient backend failures.
+        if (
+          message.includes("AI backend returned 5") ||
+          message.includes("AI backend returned 429") ||
+          message.includes("fetch failed") ||
+          message.includes("Network request failed")
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+
+        throw error;
+      }
     }
 
-    const data = await response.json();
-
-    return parseGeminiResult(data);
+    throw lastError ?? new Error("AI backend request failed");
   } finally {
     clearTimeout(timeout);
   }
